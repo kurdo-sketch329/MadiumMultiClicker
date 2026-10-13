@@ -33,6 +33,7 @@ local lastEggKey = nil
 local savedBaseCFrame = nil
 local tpBusy = false
 local lastScanDetails = {}
+local areaAnchor = nil -- Bereich beim Aktivieren merken, nicht an der Base neu waehlen
 
 for _, oldName in ipairs({"SaveEggMultiV14", "SaveEggMultiV15", "SaveEggMultiV16"}) do
     local old = pg:FindFirstChild(oldName)
@@ -537,7 +538,43 @@ local function readDisplayedJumpRequirements()
     return markers
 end
 
-local function findBestLuckEgg()
+-- Strikte Bereichserkennung: Wir vergleichen den Boden unter dem Spieler
+-- mit dem Boden unter jedem Ei, nicht mit dem naechsten Ei (das kann
+-- bereits eine Etage hoeher sein!). Lieber kein Ziel als falsche Etage.
+local AREA_FLOOR_TOLERANCE = 5 -- Studs zwischen Ebenen
+local AREA_RADIUS = 180 -- maximale horizontale Entfernung innerhalb einer Zone
+
+local function floorAt(position, ignore)
+    if not position then return nil end
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = ignore or {}
+    local start = position + Vector3.new(0, 2, 0)
+    local cast = workspace:Raycast(start, Vector3.new(0, -65, 0), params)
+    if cast and cast.Normal.Y > 0.65 then
+        return cast.Position.Y
+    end
+    return nil
+end
+
+local function getPlayerAreaAnchor()
+    local character = player.Character
+    local root = character and character:FindFirstChild('HumanoidRootPart')
+    if not root then return nil end
+    local y = floorAt(root.Position, {character})
+    if not y then return nil end
+    return {position = root.Position, floorY = y}
+end
+
+local function inArea(entry, anchor)
+    if not anchor or not entry.position or not entry.floorY then return false end
+    local d = entry.position - anchor.position
+    local distance = Vector3.new(d.X, 0, d.Z).Magnitude
+    return math.abs(entry.floorY - anchor.floorY) <= AREA_FLOOR_TOLERANCE
+        and distance <= AREA_RADIUS
+end
+
+local function findBestLuckEgg(referenceAnchor)
     local best, bestLuck, count = nil, -1, 0
     local seen = {}
     local jump = getPlayerJump()
@@ -590,36 +627,47 @@ local function findBestLuckEgg()
                         end
                     end
 
-                    local entry = {name = prompt.ObjectText, luck = luck, required = required, position = pos, status = "unknown"}
+                    local entry = {name = prompt.ObjectText, luck = luck, required = required, position = pos, floorY = floorAt(pos, player.Character and {player.Character, eggRoot} or {eggRoot}), status = "unknown"}
                     table.insert(details, entry)
-                    if jump == nil then
-                        entry.status = "jump unknown"
-                        -- Ohne auslesbaren Spielerwert kein automatischer TP.
-                        unverified += 1
-                    elseif required and jump < required then
-                        entry.status = "locked"
-                        skipped += 1
-                    elseif luck and pos then
-                        entry.status = required and "eligible" or "unverified"
-                        -- Ohne bekannte Anforderung ist die Freigabe
-                        -- nur eine Schaetzung (z.B. normales Start-Ei).
-                        if not required then unverified += 1 end
-                        eligible += 1
-                        if luck > bestLuck then
-                            bestLuck = luck
-                            best = {
-                                position = pos, luck = luck,
-                                name = prompt.ObjectText, required = required
-                            }
-                        end
-                    end
+                    -- Bereich erst bestimmen, nachdem alle Eier erfasst wurden.
+                    entry.status = "pending"
+
                 end
             end
         end
     end
+    local anchor = referenceAnchor or getPlayerAreaAnchor()
+    for _, entry in ipairs(details) do
+        if not inArea(entry, anchor) then
+            entry.status = "andere Ebene / ausser Reichweite"
+        elseif jump == nil then
+            -- Im gleichen Bereich vorsichtig zulassen; Spielerwert unbekannt.
+            entry.status = "jump unbekannt / ungeprueft"
+            unverified += 1
+            if entry.luck and entry.position and entry.luck > bestLuck then
+                bestLuck = entry.luck
+                best = {position = entry.position, luck = entry.luck,
+                    name = entry.name, required = entry.required}
+            end
+        elseif entry.required and jump < entry.required then
+            entry.status = "locked"
+            skipped += 1
+        elseif entry.luck and entry.position then
+            entry.status = entry.required and "eligible" or "unverified"
+            if not entry.required then unverified += 1 end
+            eligible += 1
+            if entry.luck > bestLuck then
+                bestLuck = entry.luck
+                best = {position = entry.position, luck = entry.luck,
+                    name = entry.name, required = entry.required}
+            end
+        else
+            entry.status = "kein Luck-Wert"
+        end
+    end
     table.sort(details, function(a,b) return (a.luck or -1) > (b.luck or -1) end)
     lastScanDetails = details
-    return best, count, jump, skipped, unverified
+    return best, count, jump, skipped, unverified, anchor
 end
 
 local function showJump(value)
@@ -629,23 +677,25 @@ local function showJump(value)
     return tostring(math.floor(value))
 end
 
-local function scanEggs()
-    local best, count, jump, skipped, unverified = findBestLuckEgg()
-    print("[Egg V14] Scan: " .. count .. " Eier; Jump " .. showJump(jump))
+local function scanEggs(referenceAnchor)
+    local best, count, jump, skipped, unverified, anchor = findBestLuckEgg(referenceAnchor)
+    print("[Egg V14] Scan: " .. count .. " Eier; Jump " .. showJump(jump) .. "; Bereich Hoehe " .. (anchor and string.format("%.1f",anchor.floorY) or "unbekannt"))
     for i = 1, math.min(12, #lastScanDetails) do
         local e = lastScanDetails[i]
         print(string.format("[Egg V14] #%d %s | Luck %s | Mindest-Jump %s | %s", i, e.name, showJump(e.luck), showJump(e.required), e.status))
     end
     if best then
-        eggStatus.Text = "Jump: " .. showJump(jump)
+        eggStatus.Text = "Bereich: " .. (anchor and string.format("Boden Y %.0f", anchor.floorY) or "unbekannt")
+            .. " | Jump: " .. showJump(jump)
             .. " | Eier: " .. count
             .. "\nBestes moegliches Ei: " .. best.name
             .. " | Luck: " .. showJump(best.luck)
             .. "\nGesperrt: " .. skipped .. " | Ungeprueft: " .. unverified
     else
-        eggStatus.Text = "Jump: " .. showJump(jump)
+        eggStatus.Text = "Bereich: " .. (anchor and string.format("Boden Y %.0f", anchor.floorY) or "unbekannt")
+            .. " | Jump: " .. showJump(jump)
             .. " | Eier: " .. count
-            .. "\nKein passendes Ei gefunden."
+            .. "\nKein Ei auf deinem Boden-Niveau gefunden."
             .. "\nGesperrt: " .. skipped .. " | Ungeprueft: " .. unverified
     end
     return best
@@ -742,7 +792,7 @@ end
 local function teleportBest(automatic)
     if tpBusy then return end
     tpBusy = true
-    local egg = scanEggs()
+    local egg = scanEggs(automatic and areaAnchor or nil)
     if not egg then tpBusy = false; return end
     local home = automatic and getHome() or nil
     if automatic and not home then
@@ -802,12 +852,25 @@ end)
 
 autoTPButton.MouseButton1Click:Connect(function()
     autoTP = not autoTP
+    if autoTP then
+        -- Die Position des Spielers ist die Bereichsreferenz, nicht das
+        -- naechste Ei (das koennte bereits in der naechsten Welt sein).
+        areaAnchor = getPlayerAreaAnchor()
+        if not areaAnchor then
+            autoTP = false
+            eggStatus.Text = "Bereich nicht erkennbar: Stelle dich auf festen Boden und starte Auto TP erneut."
+        end
+    else
+        areaAnchor = nil
+    end
     autoTPButton.Text = autoTP
         and "Auto TP Best Luck: ON"
         or "Auto TP Best Luck: OFF"
-    eggStatus.Text = autoTP
-        and "Auto TP: Suche Ei und eigene Base ..."
-        or "Auto TP: Pausiert"
+    if areaAnchor or not autoTP then
+        eggStatus.Text = autoTP
+            and "Auto TP: Suche Ei in dieser Ebene ..."
+            or "Auto TP: Pausiert"
+    end
 end)
 
 task.spawn(function()

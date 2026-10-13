@@ -411,25 +411,76 @@ local function containsUpgradeGui(root)
     return false
 end
 
--- Nur Werte lesen, die selbst als Luck gekennzeichnet sind.
--- Geldpreise, Fortschrittsbalken und MAX-Buttons zaehlen nicht.
-local function getLuckFromGui(root)
-    if containsUpgradeGui(root) then
-        return nil
-    end
+-- Luck am Ei kann nur als Kleeblatt-Icon + Zahl (z.B. 30)
+-- erscheinen. Diese Zahl steht oft in einem BillboardGui, ohne "luck".
+-- Deshalb nur Anzeigen betrachten, die zu genau diesem Ei gehoeren.
+local function isUnder(obj, ancestor)
+    return obj == ancestor or obj:IsDescendantOf(ancestor)
+end
 
-    local bestNumber = nil
+local function eggDisplayGuis(root)
+    local found = {}
     for _, obj in ipairs(root:GetDescendants()) do
-        if obj:IsA('TextLabel') or obj:IsA('TextButton') then
-            local txt = (obj.Text or ''):lower():gsub(',', '')
-            local numberText = txt:match('luck%s*[:=]%s*[x×]?%s*([%d%.]+[kmbt]?)')
-                or txt:match('([%d%.]+[kmbt]?)%s*[x×]?%s*luck')
-            if numberText then
-                local value = parseNumber(numberText)
-                if value and (not bestNumber or value > bestNumber) then
-                    bestNumber = value
-                end
+        if obj:IsA("BillboardGui") then
+            table.insert(found, obj)
+        end
+    end
+    -- Manche Spiele speichern BillboardGuis in PlayerGui und
+    -- referenzieren das Ei ueber Adornee.
+    for _, obj in ipairs(pg:GetDescendants()) do
+        if obj:IsA("BillboardGui") and obj.Adornee
+            and isUnder(obj.Adornee, root) then
+            table.insert(found, obj)
+        end
+    end
+    return found
+end
+
+local function readEggDisplay(gui)
+    local values = {}
+    local explicitlyLucky = nil
+    local textCount = 0
+    local suspicious = false
+
+    for _, obj in ipairs(gui:GetDescendants()) do
+        if obj:IsA("TextLabel") or obj:IsA("TextButton") then
+            local txt = (obj.Text or ""):gsub(",", "")
+            local lower = txt:lower()
+            local normalized = lower:gsub("%s+", "")
+            if normalized:find("hatchluck", 1, true)
+                or normalized:find("baseluck", 1, true)
+                or normalized:find("upgrade", 1, true)
+                or normalized:find("buy", 1, true)
+                or normalized:find("$", 1, true)
+                or normalized:find("max", 1, true) then
+                suspicious = true
             end
+            if txt:match("%S") then textCount = textCount + 1 end
+            local explicit = lower:match("luck%s*[:=]?%s*[x×]?%s*([%d%.]+[kmbt]?)")
+                or lower:match("([%d%.]+[kmbt]?)%s*[x×]?%s*luck")
+            if explicit then explicitlyLucky = parseNumber(explicit) end
+            local value = parseNumber(txt)
+            if value then table.insert(values, value) end
+        end
+    end
+    if suspicious then return nil end
+    if explicitlyLucky then return explicitlyLucky end
+    -- Kleeblatt ist eventuell ein ImageLabel ohne aussagekraeftigen Namen.
+    -- Eine einzelne reine Zahl auf einem Ei-Billboard ist deshalb
+    -- eine plausible Luck-Anzeige. Bei mehreren Zahlen kein Raten.
+    if #values == 1 and textCount <= 4 then
+        return values[1]
+    end
+    return nil
+end
+
+local function getLuckFromGui(root)
+    if containsUpgradeGui(root) then return nil end
+    local bestNumber = nil
+    for _, display in ipairs(eggDisplayGuis(root)) do
+        local value = readEggDisplay(display)
+        if value and (not bestNumber or value > bestNumber) then
+            bestNumber = value
         end
     end
     return bestNumber

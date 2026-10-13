@@ -14,6 +14,7 @@ local Y_OFFSET = 60
 local HOLD_TIME = 1
 local CLICK_DELAY = 0.08
 local AUTO_TP_DELAY = 3
+local EGG_WAIT_SECONDS = 4 -- Zeit beim Ei, bevor es zur Base geht
 
 -- Alte Instanzen stoppen
 if _G.SaveEggMultiStop then
@@ -29,6 +30,8 @@ local autoClick = false
 local autoTP = false
 local clicked = {}
 local lastEggKey = nil
+local savedBaseCFrame = nil
+local tpBusy = false
 
 for _, oldName in ipairs({"SaveEggMultiV14", "SaveEggMultiV15", "SaveEggMultiV16"}) do
     local old = pg:FindFirstChild(oldName)
@@ -42,7 +45,7 @@ gui.ResetOnSpawn = false
 gui.Parent = pg
 
 local frame = Instance.new("Frame")
-frame.Size = UDim2.fromOffset(350, 365)
+frame.Size = UDim2.fromOffset(350, 440)
 frame.Position = UDim2.new(0.5, -175, 0.2, 0)
 frame.BackgroundColor3 = Color3.fromRGB(32, 27, 44)
 frame.BorderSizePixel = 0
@@ -111,12 +114,17 @@ local autoTPButton = makeButton(
     Color3.fromRGB(65, 145, 105)
 )
 
+local baseButton = makeButton(
+    "Meine Base hier speichern", 214,
+    Color3.fromRGB(110, 90, 165)
+)
+
 local clickStatus = makeLabel(
-    "Purple Click: Bereit", 220, 35
+    "Purple Click: Bereit", 263, 35
 )
 
 local eggStatus = makeLabel(
-    "Egg Scanner: Bereit", 258, 85
+    "Egg Scanner: Bereit", 300, 126
 )
 
 local close = Instance.new("TextButton")
@@ -447,9 +455,95 @@ local function getEggPosition(eggRoot, prompt)
     return part and part.Position or nil
 end
 
+-- Bekannte Mindest-Jump-Werte aus dem Spiel.
+-- Weitere bekannte Eier kannst du hier eintragen.
+local REQUIRED_JUMP_BY_EGG = {
+    ["desert egg"] = 5.2e6,
+}
+
+-- Liest den eigenen Jump-Wert, nicht den Wert der Eier.
+-- In verschiedenen Spielversionen kann er in leaderstats, Attributes
+-- oder als Bildschirmanzeige liegen.
+local function getPlayerJump()
+    local function fromValue(container)
+        if not container then return nil end
+        for _, obj in ipairs(container:GetDescendants()) do
+            local name = obj.Name:lower()
+            if (name:find("jump", 1, true))
+                and (obj:IsA("NumberValue") or obj:IsA("IntValue")) then
+                if obj.Value >= 0 then return obj.Value end
+            end
+        end
+        for key, value in pairs(container:GetAttributes()) do
+            local name = tostring(key):lower()
+            if type(value) == "number" and value >= 0
+                and (name:find("jump", 1, true)) then
+                return value
+            end
+        end
+        return nil
+    end
+
+    local value = fromValue(player:FindFirstChild("leaderstats"))
+        or fromValue(player:FindFirstChild("Data"))
+        or fromValue(player)
+    if value then return value end
+
+    local candidates = {}
+    for _, label in ipairs(pg:GetDescendants()) do
+        if label:IsA("TextLabel") and not label:IsDescendantOf(gui) then
+            local v = parseNumber(label.Text)
+            if v then
+                local context = (label.Name .. " " .. (label.Parent and label.Parent.Name or "")):lower()
+                if context:find("jump", 1, true) then
+                    table.insert(candidates, v)
+                end
+            end
+        end
+    end
+    if #candidates == 1 then return candidates[1] end
+    return nil
+end
+
+local function readDisplayedJumpRequirements()
+    local markers = {}
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("TextLabel") or obj:IsA("TextButton") then
+            local text = (obj.Text or ""):lower()
+            local amount = text:match("reach%s+([%d%.]+%s*[kmbt]?)%s+jump")
+            if amount then
+                local required = parseNumber(amount)
+                if required then
+                    -- GUI muss einer Position in der Welt zuordenbar sein.
+                    local pos = nil
+                    local current = obj.Parent
+                    for _ = 1, 10 do
+                        if not current or current == workspace then break end
+                        pos = getPosition(current)
+                        if pos then break end
+                        if current:IsA("BillboardGui") or current:IsA("SurfaceGui") then
+                            local adornee = current.Adornee
+                            if adornee then pos = getPosition(adornee) end
+                            if pos then break end
+                        end
+                        current = current.Parent
+                    end
+                    if pos then table.insert(markers, {position = pos, required = required}) end
+                end
+            end
+        end
+    end
+    return markers
+end
+
 local function findBestLuckEgg()
     local best, bestLuck, count = nil, -1, 0
     local seen = {}
+    local jump = getPlayerJump()
+    local markers = readDisplayedJumpRequirements()
+    local eligible = 0
+    local skipped = 0
+    local unverified = 0
 
     for _, prompt in ipairs(workspace:GetDescendants()) do
         if prompt:IsA("ProximityPrompt") and prompt.Enabled then
@@ -464,14 +558,51 @@ local function findBestLuckEgg()
                     seen[eggRoot] = true
                     count += 1
                     local luck = readLuck(eggRoot)
-                    if luck and luck > bestLuck then
-                        local pos = getEggPosition(eggRoot, prompt)
-                        if pos then
+                    local pos = getEggPosition(eggRoot, prompt)
+                    local required = REQUIRED_JUMP_BY_EGG[label]
+
+                    -- Dynamisch erkennen, wenn ein Mindestwert am Ei/der Zone
+                    -- als Attribut hinterlegt ist.
+                    for _, source in ipairs({prompt, eggRoot, eggRoot.Parent}) do
+                        if source then
+                            for key, v in pairs(source:GetAttributes()) do
+                                local keyLower = tostring(key):lower()
+                                if keyLower:find("required", 1, true)
+                                    and (keyLower:find("jump", 1, true)) then
+                                    local parsed = type(v) == "number" and v or parseNumber(tostring(v))
+                                    if parsed and parsed >= 0 then
+                                        required = math.max(required or 0, parsed)
+                                    end
+                                end
+                            end
+                        end
+                    end
+
+                    -- Nur sehr nahe Markierungen zuordnen; nicht blind jede
+                    -- Zone dem naechsten Egg zuweisen.
+                    if pos then
+                        for _, marker in ipairs(markers) do
+                            if (pos - marker.position).Magnitude < 28 then
+                                required = math.max(required or 0, marker.required)
+                            end
+                        end
+                    end
+
+                    if jump == nil then
+                        -- Ohne auslesbaren Spielerwert kein automatischer TP.
+                        unverified += 1
+                    elseif required and jump < required then
+                        skipped += 1
+                    elseif luck and pos then
+                        -- Ohne bekannte Anforderung ist die Freigabe
+                        -- nur eine Schaetzung (z.B. normales Start-Ei).
+                        if not required then unverified += 1 end
+                        eligible += 1
+                        if luck > bestLuck then
                             bestLuck = luck
                             best = {
-                                position = pos,
-                                luck = luck,
-                                name = prompt.ObjectText
+                                position = pos, luck = luck,
+                                name = prompt.ObjectText, required = required
                             }
                         end
                     end
@@ -479,69 +610,171 @@ local function findBestLuckEgg()
             end
         end
     end
-    return best, count
+    return best, count, jump, skipped, unverified
+end
+
+local function showJump(value)
+    if not value then return "nicht erkannt" end
+    if value >= 1e6 then return string.format("%.2fM", value / 1e6) end
+    if value >= 1e3 then return string.format("%.2fK", value / 1e3) end
+    return tostring(math.floor(value))
 end
 
 local function scanEggs()
-    local best, count = findBestLuckEgg()
-
+    local best, count, jump, skipped, unverified = findBestLuckEgg()
     if best then
-        eggStatus.Text =
-            "Bestes Ei: " .. best.name
-            .. "\nLuck: " .. tostring(best.luck)
-            .. " | Eier gefunden: " .. count
+        eggStatus.Text = "Jump: " .. showJump(jump)
+            .. " | Eier: " .. count
+            .. "\nBestes moegliches Ei: " .. best.name
+            .. " | Luck: " .. showJump(best.luck)
+            .. "\nGesperrt: " .. skipped .. " | Ungeprueft: " .. unverified
     else
-        eggStatus.Text =
-            "Eier erkannt: " .. count
-            .. "\nKein eindeutig zugeordnetes Ei-Luck gefunden."
+        eggStatus.Text = "Jump: " .. showJump(jump)
+            .. " | Eier: " .. count
+            .. "\nKein passendes Ei gefunden."
+            .. "\nGesperrt: " .. skipped .. " | Ungeprueft: " .. unverified
     end
-
     return best
 end
 
-local function teleportBest()
-    local character = player.Character
-    local root = character
-        and character:FindFirstChild(
-            "HumanoidRootPart"
-        )
+-- Sichere Position auf freiem Boden seitlich neben dem Ei finden.
+-- Ein groesserer Abstand vermeidet Kollisionen mit dem getragenen Pet.
+local function safeLanding(eggPosition, character)
+    local offsets = {
+        Vector3.new(9, 0, 0), Vector3.new(-9, 0, 0),
+        Vector3.new(0, 0, 9), Vector3.new(0, 0, -9),
+        Vector3.new(13, 0, 0), Vector3.new(0, 0, 13)
+    }
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = {character}
+    for _, offset in ipairs(offsets) do
+        local probe = eggPosition + offset
+        local hit = workspace:Raycast(probe + Vector3.new(0, 25, 0), Vector3.new(0, -75, 0), params)
+        if hit and hit.Normal.Y > 0.65 then
+            -- Wenigstens 5 Studs ueber dem Boden. Nicht im Ei/Pet spawnen.
+            return CFrame.new(hit.Position + Vector3.new(0, 5.5, 0), eggPosition)
+        end
+    end
+    return CFrame.new(eggPosition + Vector3.new(9, 9, 0))
+end
 
+local function getCharacterRoot()
+    local char = player.Character
+    return char, char and char:FindFirstChild("HumanoidRootPart")
+end
+
+local function isMyBaseOwner(obj)
+    -- Nur eine eindeutige Zuordnung benutzen, sonst versehentlich fremde Base.
+    local matchingNames = {Owner = true, OwnerName = true, PlayerName = true, UserId = true, OwnerUserId = true}
+    for name in pairs(matchingNames) do
+        local val = obj:GetAttribute(name)
+        if val ~= nil and (tostring(val) == player.Name or tostring(val) == tostring(player.UserId)) then
+            return true
+        end
+        local child = obj:FindFirstChild(name)
+        if child and child:IsA("ValueBase") then
+            local v = child.Value
+            if v == player or tostring(v) == player.Name or tostring(v) == tostring(player.UserId) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function discoverBase()
+    -- Nicht irgendeine "Base" waehlen: nur eindeutig zugewiesene Plots.
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if (obj:IsA("Model") or obj:IsA("BasePart"))
+            and (obj.Name:lower():find("base", 1, true) or obj.Name:lower():find("plot", 1, true))
+            and isMyBaseOwner(obj) then
+            local pos = getPosition(obj)
+            if pos then return CFrame.new(pos + Vector3.new(0, 7, 0)) end
+        end
+    end
+    return nil
+end
+
+baseButton.MouseButton1Click:Connect(function()
+    local _, root = getCharacterRoot()
     if not root then
-        eggStatus.Text =
-            "Egg TP: Charakter nicht bereit"
+        eggStatus.Text = "Base: Charakter nicht bereit"
         return
     end
+    savedBaseCFrame = root.CFrame
+    baseButton.Text = "Base gespeichert!"
+    eggStatus.Text = "Base gespeichert. Auto TP bringt dich nach dem Ei hierher zurueck."
+end)
 
-    local egg = scanEggs()
+local function getHome()
+    return savedBaseCFrame or discoverBase()
+end
 
-    if not egg then
-        return
-    end
-
-    local key = tostring(egg.position)
-        .. ":" .. tostring(egg.luck)
-
-    if autoTP and key == lastEggKey then
-        return
-    end
-
+local function teleportTo(cf)
+    local char, root = getCharacterRoot()
+    if not char or not root then return false, "Charakter nicht bereit" end
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if humanoid and humanoid.Sit then humanoid.Sit = false end
     local ok, err = pcall(function()
-        root.CFrame = CFrame.new(
-            egg.position + Vector3.new(0, 3, 0)
-        )
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+        char:PivotTo(cf)
     end)
+    return ok, err
+end
 
-    if ok then
-        lastEggKey = key
-
-        eggStatus.Text =
-            "TP versucht: " .. egg.name
-            .. "\nLuck: " .. tostring(egg.luck)
-    else
-        eggStatus.Text =
-            "TP Fehler: "
-            .. tostring(err):sub(1, 70)
+local function teleportBest(automatic)
+    if tpBusy then return end
+    tpBusy = true
+    local egg = scanEggs()
+    if not egg then tpBusy = false; return end
+    local home = automatic and getHome() or nil
+    if automatic and not home then
+        eggStatus.Text = "Base nicht gefunden! Stelle dich auf deine Base und druecke 'Meine Base hier speichern'."
+        tpBusy = false
+        return
     end
+
+    local char, root = getCharacterRoot()
+    if not root then
+        eggStatus.Text = "TP: Charakter nicht bereit"
+        tpBusy = false
+        return
+    end
+
+    local destination = safeLanding(egg.position, char)
+    local ok, err = teleportTo(destination)
+    if not ok then
+        eggStatus.Text = "TP Fehler: " .. tostring(err):sub(1, 80)
+        tpBusy = false
+        return
+    end
+    eggStatus.Text = "TP zu " .. egg.name .. " | Luck: " .. showJump(egg.luck)
+
+    -- Wird die Position vom Server zurueckgesetzt, nicht staendig neu teleportieren.
+    task.wait(0.8)
+    local _, currentRoot = getCharacterRoot()
+    if not currentRoot or (currentRoot.Position - destination.Position).Magnitude > 25 then
+        autoTP = false
+        autoTPButton.Text = "Auto TP Best Luck: OFF"
+        eggStatus.Text = "TP vom Spiel zurueckgesetzt. Bereich/Interaktion pruefen."
+        tpBusy = false
+        return
+    end
+
+    if automatic and autoTP and running then
+        eggStatus.Text = "Beim Ei: " .. egg.name .. " | Danach zur Base"
+        task.wait(EGG_WAIT_SECONDS)
+        if autoTP and running then
+            -- Bei der Rueckkehr etwas hoeher landen, falls ein Pet getragen wird.
+            local returnCF = home + Vector3.new(0, 4, 0)
+            local backOK, backErr = teleportTo(returnCF)
+            eggStatus.Text = backOK and "Zur Base zurueck. Naechstes Ei wird gesucht ..."
+                or ("Rueckkehr fehlgeschlagen: " .. tostring(backErr))
+        end
+    end
+    tpBusy = false
 end
 
 scanButton.MouseButton1Click:Connect(function()
@@ -549,29 +782,24 @@ scanButton.MouseButton1Click:Connect(function()
 end)
 
 tpButton.MouseButton1Click:Connect(function()
-    lastEggKey = nil
-    teleportBest()
+    task.spawn(function() teleportBest(false) end)
 end)
 
 autoTPButton.MouseButton1Click:Connect(function()
     autoTP = not autoTP
-    lastEggKey = nil
-
     autoTPButton.Text = autoTP
         and "Auto TP Best Luck: ON"
         or "Auto TP Best Luck: OFF"
-
     eggStatus.Text = autoTP
-        and "Auto TP: Suche Eier ..."
+        and "Auto TP: Suche Ei und eigene Base ..."
         or "Auto TP: Pausiert"
 end)
 
 task.spawn(function()
     while running do
-        if autoTP then
-            teleportBest()
+        if autoTP and not tpBusy then
+            teleportBest(true)
         end
-
         task.wait(AUTO_TP_DELAY)
     end
 end)

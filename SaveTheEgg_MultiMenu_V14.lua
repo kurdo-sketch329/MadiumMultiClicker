@@ -1,5 +1,5 @@
 
--- SAVE THE EGG | MULTI MENU V16
+-- SAVE THE EGG | MULTI MENU V14
 -- Datei: SaveTheEgg_MultiMenu_V14.lua
 -- Madium PC
 
@@ -30,16 +30,14 @@ local autoTP = false
 local clicked = {}
 local lastEggKey = nil
 
-local old = pg:FindFirstChild("SaveEggMultiV15")
-if old then old:Destroy() end
-old = pg:FindFirstChild("SaveEggMultiV16")
-if old then
-    old:Destroy()
+for _, oldName in ipairs({"SaveEggMultiV14", "SaveEggMultiV15", "SaveEggMultiV16"}) do
+    local old = pg:FindFirstChild(oldName)
+    if old then old:Destroy() end
 end
 
 -- GUI
 local gui = Instance.new("ScreenGui")
-gui.Name = "SaveEggMultiV16"
+gui.Name = "SaveEggMultiV14"
 gui.ResetOnSpawn = false
 gui.Parent = pg
 
@@ -88,7 +86,7 @@ local function makeButton(text, y, color)
 end
 
 local title = makeLabel(
-    "SAVE THE EGG | MULTI MENU V16",
+    "SAVE THE EGG | MULTI MENU V14",
     5, 30
 )
 title.Font = Enum.Font.GothamBold

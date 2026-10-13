@@ -190,14 +190,19 @@ task.spawn(function()
                        mousemoveabs(x, y)
 task.wait(0.15)
 
-if type(mouse1press) == "function"
-    and type(mouse1release) == "function" then
-    mouse1press()
-    task.wait(0.12)
-    mouse1release()
-else
-    mouse1click()
+
+if type(mousemoveabs) ~= "function"
+    or (
+        type(mouse1click) ~= "function"
+        and not (
+            type(mouse1press) == "function"
+            and type(mouse1release) == "function"
+        )
+    ) then
+    status.Text = "Mausfunktionen nicht unterstützt!"
+    return
 end
+
                     end)
 
                     if ok then

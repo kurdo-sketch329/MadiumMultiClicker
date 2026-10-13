@@ -187,9 +187,17 @@ task.spawn(function()
 
                 if clicked[obj] ~= signature then
                     local ok, err = pcall(function()
-                        mousemoveabs(x, y)
-                        task.wait(0.05)
-                        mouse1click()
+                       mousemoveabs(x, y)
+task.wait(0.15)
+
+if type(mouse1press) == "function"
+    and type(mouse1release) == "function" then
+    mouse1press()
+    task.wait(0.12)
+    mouse1release()
+else
+    mouse1click()
+end
                     end)
 
                     if ok then

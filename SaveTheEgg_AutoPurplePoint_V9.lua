@@ -2,6 +2,7 @@
 -- Save The Egg | Auto Purple Point V9
 -- Madium PC
 
+
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local pg = player:WaitForChild("PlayerGui")

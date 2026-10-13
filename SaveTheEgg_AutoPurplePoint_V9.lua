@@ -181,7 +181,7 @@ task.spawn(function()
 
                 -- Mitte berechnen
                 local x = math.floor(pos.X + size.X / 2)
-                local y = math.floor(pos.Y + size.Y / 2 + 36)
+                local y = math.floor(pos.Y + size.Y / 2 + 60)
 
                 local signature = x .. ":" .. y
 

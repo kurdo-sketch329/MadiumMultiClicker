@@ -1,70 +1,149 @@
--- SAVE THE EGG | ZONE SCANNER V1 - Neuaufbau
--- Inoffizieller Client-Scanner fuer geladene Eier. Keine garantierte Server-Teleportation.
--- Bereich wird anhand des naechsten geladenen Eis und seiner Hoehe geschaetzt; keine echten Zonengrenzen.
-local Players = game:GetService('Players')
-local TweenService = game:GetService('TweenService')
+-- SAVE THE EGG | ZONE SCANNER V1 | MONO MENU
+-- Client-side tool; TP can be rejected by the Roblox server.
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 local player = Players.LocalPlayer
-local pg = player:WaitForChild('PlayerGui')
+local pg = player:WaitForChild("PlayerGui")
 if _G.SaveEggZoneStop then pcall(_G.SaveEggZoneStop) end
-for _,n in ipairs({'SaveEggZoneScannerV1','SaveEggZoneScannerV2'}) do
-    local g=pg:FindFirstChild(n); if g then g:Destroy() end
+for _, name in ipairs({"SaveEggZoneScannerV1", "SaveEggZoneScannerV2"}) do
+ local old = pg:FindFirstChild(name)
+ if old then old:Destroy() end
 end
-local active=true
-local auto=false
-local busy=false
-local baseCFrame=nil
-local baseVerified=false
-local zoneY=nil
-local zoneCenter=nil
-local maxHorizontal=1200
-local heightTolerance=18
-local interval=8
-local gui=Instance.new('ScreenGui')
-gui.Name='SaveEggZoneScannerV1'; gui.ResetOnSpawn=false; gui.Parent=pg
-local frame=Instance.new('Frame')
-frame.Size=UDim2.fromOffset(394,455)
-frame.Position=UDim2.new(.5,-197,.15,0)
-frame.BackgroundColor3=Color3.fromRGB(13,13,15)
-frame.BorderSizePixel=0
-frame.Active=true;frame.Draggable=true;frame.Parent=gui
-Instance.new('UICorner',frame).CornerRadius=UDim.new(0,16)
-local outline=Instance.new('UIStroke',frame);outline.Color=Color3.fromRGB(90,90,94);outline.Thickness=1
-local top=Instance.new('Frame',frame);top.Size=UDim2.new(1,0,0,66);top.BackgroundTransparency=1
-local accent=Instance.new('Frame',frame);accent.Size=UDim2.new(1,-24,0,2);accent.Position=UDim2.fromOffset(12,65);accent.BackgroundColor3=Color3.fromRGB(232,232,232);accent.BorderSizePixel=0
-local function label(t,y,h)
- local o=Instance.new('TextLabel');o.Size=UDim2.new(1,-24,0,h);o.Position=UDim2.fromOffset(12,y)
- o.BackgroundTransparency=1;o.TextColor3=Color3.fromRGB(235,235,235);o.Font=Enum.Font.Gotham
- o.TextSize=13;o.TextWrapped=true;o.Text=t;o.Parent=frame;return o
-end
-local function button(t,y)
- local o=Instance.new('TextButton');o.Size=UDim2.new(1,-24,0,39);o.Position=UDim2.fromOffset(12,y)
- o.BackgroundColor3=Color3.fromRGB(36,36,39);o.AutoButtonColor=false
- o.TextColor3=Color3.fromRGB(248,248,248)
- o.Font=Enum.Font.GothamBold;o.TextSize=13;o.Text=t;o.Parent=frame
- Instance.new('UICorner',o).CornerRadius=UDim.new(0,9)
- local line=Instance.new('UIStroke',o);line.Color=Color3.fromRGB(75,75,78);line.Thickness=.7
- o.MouseEnter:Connect(function() TweenService:Create(o,TweenInfo.new(.15),{BackgroundColor3=Color3.fromRGB(78,78,82)}):Play() end)
- o.MouseLeave:Connect(function() TweenService:Create(o,TweenInfo.new(.15),{BackgroundColor3=Color3.fromRGB(36,36,39)}):Play() end)
+local active, autoClick, busy, autoEgg = true, false, false, false
+local clickedPurple = {}
+local PURPLE_Y_OFFSET = 60
+local PURPLE_HOLD_TIME = 1
+local PURPLE_DELAY = 0.08
+local zoneY, zoneCenter = nil, nil
+local maxHorizontal, heightTolerance = 1200, 18
+local gui = Instance.new("ScreenGui")
+gui.Name = "SaveEggZoneScannerV1"
+gui.ResetOnSpawn = false
+gui.Parent = pg
+local frame = Instance.new("Frame")
+frame.Size = UDim2.fromOffset(410, 360)
+frame.Position = UDim2.new(.5,-205,.5,-180)
+frame.BackgroundColor3 = Color3.fromRGB(12,12,13)
+frame.BorderSizePixel = 0
+frame.Active = true
+frame.Draggable = true
+frame.Parent = gui
+Instance.new("UIStroke",frame).Color = Color3.fromRGB(210,210,210)
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1,-55,0,34)
+title.Position = UDim2.fromOffset(15,5)
+title.BackgroundTransparency = 1
+title.Text = "SAVE THE EGG  //  V1"
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Font = Enum.Font.Code
+title.TextSize = 19
+title.TextColor3 = Color3.fromRGB(245,245,245)
+title.Parent = frame
+local close = Instance.new("TextButton")
+close.Size = UDim2.fromOffset(30,29)
+close.Position = UDim2.new(1,-37,0,7)
+close.Text = "X"
+close.Font = Enum.Font.Code
+close.TextSize = 19
+close.BackgroundColor3 = Color3.fromRGB(32,32,34)
+close.TextColor3 = Color3.new(1,1,1)
+close.Parent = frame
+local function button(text, parent, y, height)
+ local o = Instance.new("TextButton")
+ o.Size = UDim2.new(1,-24,0,height or 37)
+ o.Position = UDim2.fromOffset(12,y)
+ o.Text = text
+ o.Font = Enum.Font.Code
+ o.TextSize = 16
+ o.BackgroundColor3 = Color3.fromRGB(29,29,31)
+ o.TextColor3 = Color3.fromRGB(248,248,248)
+ o.AutoButtonColor = false
+ o.Parent = parent
+ local st = Instance.new("UIStroke",o)
+ st.Color = Color3.fromRGB(105,105,105)
+ o.MouseEnter:Connect(function()
+  TweenService:Create(o,TweenInfo.new(.14),{BackgroundColor3=Color3.fromRGB(85,85,85)}):Play()
+ end)
+ o.MouseLeave:Connect(function()
+  TweenService:Create(o,TweenInfo.new(.14),{BackgroundColor3=Color3.fromRGB(29,29,31)}):Play()
+ end)
  return o
 end
-local title=label('SAVE THE EGG',9,28);title.Font=Enum.Font.GothamBlack;title.TextSize=20;title.TextXAlignment=Enum.TextXAlignment.Left
-local subtitle=label('ZONE SCANNER  /  V1',36,22);subtitle.TextSize=11;subtitle.TextColor3=Color3.fromRGB(163,163,167);subtitle.TextXAlignment=Enum.TextXAlignment.Left
-local zoneBtn=button('01   BEREICH FESTLEGEN',79)
-local scanBtn=button('02   BESTES EI SUCHEN',124)
-local tpBtn=button('03   TP ZUM BESTEN EI',169)
-local saveBtn=button('04   BASE HIER SPEICHERN',214)
-local baseBtn=button('05   BASE TP TESTEN',259)
-local autoBtn=button('AUTO EI  ->  BASE: AUS',304)
-local info=label('Bereich festlegen und dann scannen.',357,85)
-info.TextColor3=Color3.fromRGB(198,198,204)
-local close=Instance.new('TextButton');close.Size=UDim2.fromOffset(30,29)
-close.Position=UDim2.new(1,-39,0,15);close.Text='X';close.Font=Enum.Font.GothamBold;close.TextSize=14
-close.TextColor3=Color3.fromRGB(235,235,235);close.BackgroundColor3=Color3.fromRGB(55,55,60);close.Parent=frame
-Instance.new('UICorner',close).CornerRadius=UDim.new(0,8)
-local function stop() active=false;auto=false; if gui.Parent then gui:Destroy() end end
-_G.SaveEggZoneStop=stop;close.MouseButton1Click:Connect(stop)
-frame.Position=UDim2.new(.5,-197,-.65,0)
-TweenService:Create(frame,TweenInfo.new(.45,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Position=UDim2.new(.5,-197,.15,0)}):Play()
+local tabRow = Instance.new("Frame")
+tabRow.Size = UDim2.new(1,-24,0,35)
+tabRow.Position = UDim2.fromOffset(12,46)
+tabRow.BackgroundTransparency = 1
+tabRow.Parent = frame
+local function tab(name,x)
+ local b = Instance.new("TextButton")
+ b.Size = UDim2.new(.5,-3,1,0)
+ b.Position = UDim2.new(x, x==0 and 0 or 3,0,0)
+ b.Text = name
+ b.Font = Enum.Font.Code
+ b.TextSize = 15
+ b.TextColor3 = Color3.new(1,1,1)
+ b.BackgroundColor3 = Color3.fromRGB(35,35,37)
+ b.Parent = tabRow
+ Instance.new("UIStroke",b).Color = Color3.fromRGB(140,140,140)
+ return b
+end
+local eggTab = tab("EASY GET EGG",0)
+local trainTab = tab("AUTO TRAIN",.5)
+local eggPage = Instance.new("Frame")
+eggPage.Size = UDim2.new(1,-10,0,190)
+eggPage.Position = UDim2.fromOffset(5,91)
+eggPage.BackgroundTransparency = 1
+eggPage.Parent = frame
+local trainPage = eggPage:Clone()
+trainPage.Name = "TrainPage"
+trainPage.Visible = false
+trainPage.Parent = frame
+for _,o in ipairs(trainPage:GetChildren()) do o:Destroy() end
+local zoneBtn = button("[ 1 ]  BEREICH HIER FESTLEGEN",eggPage,5)
+local scanBtn = button("[ 2 ]  BESTES EI SCANNEN",eggPage,49)
+local tpBtn = button("[ 3 ]  TP BEST EGG",eggPage,93)
+local autoBtn = button("AUTO BEST EGG: AUS",eggPage,137)
+local purpleBtn = button("AUTO CLICK LILA PUNKTE: AUS",trainPage,5)
+local trainInfo = Instance.new("TextLabel")
+trainInfo.Size = UDim2.new(1,-24,0,88)
+trainInfo.Position = UDim2.fromOffset(12,55)
+trainInfo.BackgroundTransparency = 1
+trainInfo.Text = "Sucht sichtbare Tap2-Punkte und klickt sie automatisch."
+trainInfo.TextWrapped = true
+trainInfo.Font = Enum.Font.Code
+trainInfo.TextSize = 15
+trainInfo.TextColor3 = Color3.fromRGB(210,210,210)
+trainInfo.Parent = trainPage
+local info = Instance.new("TextLabel")
+info.Size = UDim2.new(1,-30,0,65)
+info.Position = UDim2.fromOffset(15,287)
+info.BackgroundColor3 = Color3.fromRGB(20,20,22)
+info.TextColor3 = Color3.fromRGB(226,226,226)
+info.Font = Enum.Font.Code
+info.TextSize = 13
+info.TextWrapped = true
+info.Text = "Bereich festlegen, dann bestes Ei suchen."
+info.Parent = frame
+local function showPage(egg)
+ eggPage.Visible = egg
+ trainPage.Visible = not egg
+ eggTab.BackgroundColor3 = egg and Color3.fromRGB(100,100,103) or Color3.fromRGB(35,35,37)
+ trainTab.BackgroundColor3 = (not egg) and Color3.fromRGB(100,100,103) or Color3.fromRGB(35,35,37)
+end
+eggTab.MouseButton1Click:Connect(function() showPage(true) end)
+trainTab.MouseButton1Click:Connect(function() showPage(false) end)
+showPage(true)
+local function stop()
+ active=false
+ autoClick=false
+ autoEgg=false
+ if gui.Parent then gui:Destroy() end
+end
+_G.SaveEggZoneStop = stop
+close.MouseButton1Click:Connect(stop)
+frame.Position = UDim2.new(.5,-205,.5,-280)
+TweenService:Create(frame,TweenInfo.new(.4,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Position=UDim2.new(.5,-205,.5,-180)}):Play()
 local function rootPart()
  local c=player.Character
  return c,c and c:FindFirstChild('HumanoidRootPart')
@@ -212,22 +291,6 @@ local function teleportTo(cframe,desc)
  info.Text=desc..': Position erreicht (clientseitig).'
  return true
 end
-local function saveBase()
- local char,root=rootPart()
- if not root then info.Text='Base: Charakter nicht bereit.';return end
- -- Root-Position und Blickrichtung speichern, nicht das Model-Pivot des gesamten Pets.
- baseCFrame=root.CFrame
- baseVerified=false
- info.Text='Baseposition gespeichert. Bitte Base-TP testen.'
- print('[BASE] Gespeicherte Position:',baseCFrame.Position)
-end
-local function tpBase()
- if not baseCFrame then info.Text='Zuerst Base speichern.';return false end
- local target=baseCFrame+Vector3.new(0,3,0)
- local ok=teleportTo(target,'Base TP')
- if ok then baseVerified=true end
- return ok
-end
 local function eggTP(e)
  if not e then return false end
  local char,root=rootPart();if not root then return false end
@@ -240,49 +303,95 @@ local function eggTP(e)
  if hit and hit.Normal.Y>.65 and hit.Position.Y<=e.position.Y+4 then target=hit.Position+Vector3.new(0,4.2,0) end
  return teleportTo(CFrame.new(target,e.position),'Ei-Teleport')
 end
+local function purpleVisible(obj)
+ if not obj:IsA('GuiObject') then return false end
+ if obj.AbsoluteSize.X < 5 or obj.AbsoluteSize.Y < 5 then return false end
+ local current=obj
+ while current and current~=pg do
+  if current:IsA('GuiObject') and not current.Visible then return false end
+  if current:IsA('ScreenGui') and not current.Enabled then return false end
+  current=current.Parent
+ end
+ return true
+end
+local function purpleTarget(obj)
+ local parent=obj.Parent
+ if parent then
+  for _,name in ipairs({'Tap','Hit'}) do
+   local child=parent:FindFirstChild(name)
+   if child and purpleVisible(child) then return child end
+  end
+ end
+ return obj
+end
+local function purpleClick(x,y)
+ if type(mousemoveabs)=='function' then mousemoveabs(x,y) end
+ task.wait(.15)
+ if not active or not autoClick then return end
+ VirtualInputManager:SendMouseButtonEvent(x,y,0,true,game,0)
+ task.wait(PURPLE_HOLD_TIME)
+ VirtualInputManager:SendMouseButtonEvent(x,y,0,false,game,0)
+end
+purpleBtn.MouseButton1Click:Connect(function()
+ autoClick = not autoClick
+ table.clear(clickedPurple)
+ purpleBtn.Text = autoClick and "AUTO CLICK LILA PUNKTE: AN" or "AUTO CLICK LILA PUNKTE: AUS"
+ info.Text = autoClick and "Auto Train: Suche Lila Punkte ..." or "Auto Train: Pausiert"
+end)
+task.spawn(function()
+ while active do
+  if autoClick then
+   local visibleNow = {}
+   for _,obj in ipairs(pg:GetDescendants()) do
+    if not active or not autoClick then break end
+    if obj.Name == "Tap2" and purpleVisible(obj) and not obj:IsDescendantOf(gui) then
+     visibleNow[obj] = true
+     local target = purpleTarget(obj)
+     local pos,size = target.AbsolutePosition,target.AbsoluteSize
+     local x = math.floor(pos.X+size.X/2)
+     local y = math.floor(pos.Y+size.Y/2+PURPLE_Y_OFFSET)
+     local sig = tostring(x)..":"..tostring(y)
+     if clickedPurple[obj] ~= sig then
+      local ok,err=pcall(function() purpleClick(x,y) end)
+      if ok and autoClick then clickedPurple[obj]=sig
+      else warn("[PURPLE] "..tostring(err)); info.Text="Lila Klick: "..tostring(err):sub(1,70) end
+      break
+     end
+    end
+   end
+   for obj in pairs(clickedPurple) do
+    if not visibleNow[obj] then clickedPurple[obj]=nil end
+   end
+  end
+  task.wait(PURPLE_DELAY)
+ end
+end)
 zoneBtn.MouseButton1Click:Connect(setZone)
 scanBtn.MouseButton1Click:Connect(scan)
 tpBtn.MouseButton1Click:Connect(function()
  if busy then return end
  busy=true
- local e=scan();if e then eggTP(e) end
+ local e=scan()
+ if e then eggTP(e) end
  busy=false
 end)
-saveBtn.MouseButton1Click:Connect(function()
- saveBase()
-end)
-baseBtn.MouseButton1Click:Connect(function()
- if busy then return end
- if not baseCFrame then info.Text='Bitte zuerst Base speichern.';return end
- busy=true;tpBase();busy=false
-end)
 autoBtn.MouseButton1Click:Connect(function()
- if not auto and not baseVerified then info.Text='Zuerst Base speichern UND Base TP erfolgreich testen.';return end
- if not auto and not zoneY then info.Text='Zuerst im Ei-Bereich Bereich setzen.';return end
- auto=not auto;autoBtn.Text=auto and 'AUTO EI  ->  BASE: AN' or 'AUTO EI  ->  BASE: AUS'
+ if not autoEgg and not zoneY then info.Text="Erst Bereich festlegen.";return end
+ autoEgg=not autoEgg
+ autoBtn.Text=autoEgg and "AUTO BEST EGG: AN" or "AUTO BEST EGG: AUS"
 end)
 task.spawn(function()
  while active do
-  if auto and not busy then
+  if autoEgg and not busy then
    busy=true
    local e=scan()
    if e then
     local ok=eggTP(e)
-    if ok then
-     -- Keine automatische Einsammlung vortaeuschen: hier nur warten.
-     info.Text='Beim Ei. Einsammeln mit E; Rueckkehr zur Base in 5 Sekunden.'
-     task.wait(5)
-     if auto and baseCFrame then
-      local reached=tpBase()
-      if not reached then auto=false;autoBtn.Text='AUTO EI  ->  BASE: AUS' end
-     end
-    else
-     auto=false;autoBtn.Text='AUTO EI  ->  BASE: AUS'
-    end
+    if not ok then autoEgg=false;autoBtn.Text="AUTO BEST EGG: AUS" end
    end
    busy=false
   end
-  task.wait(interval)
+  task.wait(8)
  end
 end)
-print('[ZONE SCANNER V1] Neuaufbau geladen. Bereich neben einem Ei festlegen, dann Scan.')
+print("[SAVE THE EGG V1] Mono UI: Easy Get Egg / Auto Train geladen")

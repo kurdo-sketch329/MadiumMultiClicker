@@ -3,6 +3,7 @@
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
+local VirtualUser = game:GetService("VirtualUser")
 local player = Players.LocalPlayer
 local pg = player:WaitForChild("PlayerGui")
 if _G.SaveEggZoneStop then pcall(_G.SaveEggZoneStop) end
@@ -11,6 +12,8 @@ for _, name in ipairs({"SaveEggZoneScannerV1", "SaveEggZoneScannerV2"}) do
  if old then old:Destroy() end
 end
 local active, autoClick, busy, autoEgg = true, false, false, false
+local antiAfk = false
+local idleConnection = nil
 local clickedPurple = {}
 local PURPLE_Y_OFFSET = 60
 local PURPLE_HOLD_TIME = 1
@@ -105,11 +108,12 @@ local scanBtn = button("[ 2 ]  BESTES EI SCANNEN",eggPage,49)
 local tpBtn = button("[ 3 ]  TP BEST EGG",eggPage,93)
 local autoBtn = button("AUTO BEST EGG: AUS",eggPage,137)
 local purpleBtn = button("AUTO CLICK LILA PUNKTE: AUS",trainPage,5)
+local afkBtn = button("ANTI-AFK: AUS",trainPage,49)
 local trainInfo = Instance.new("TextLabel")
 trainInfo.Size = UDim2.new(1,-24,0,88)
-trainInfo.Position = UDim2.fromOffset(12,55)
+trainInfo.Position = UDim2.fromOffset(12,98)
 trainInfo.BackgroundTransparency = 1
-trainInfo.Text = "Sucht sichtbare Tap2-Punkte und klickt sie automatisch."
+trainInfo.Text = "Lila Punkte: automatisches Training.\nAnti-AFK: simuliert Eingabe, wenn Roblox dich als inaktiv erkennt."
 trainInfo.TextWrapped = true
 trainInfo.Font = Enum.Font.Code
 trainInfo.TextSize = 15
@@ -138,6 +142,8 @@ local function stop()
  active=false
  autoClick=false
  autoEgg=false
+ antiAfk=false
+ if idleConnection then idleConnection:Disconnect(); idleConnection=nil end
  if gui.Parent then gui:Destroy() end
 end
 _G.SaveEggZoneStop = stop
@@ -332,6 +338,30 @@ local function purpleClick(x,y)
  task.wait(PURPLE_HOLD_TIME)
  VirtualInputManager:SendMouseButtonEvent(x,y,0,false,game,0)
 end
+-- Nur bei Roblox-Idle ein kurzes Eingabesignal senden.
+-- Dies kann je nach Spiel/Executor blockiert werden; keine Garantie gegen Kick.
+afkBtn.MouseButton1Click:Connect(function()
+ antiAfk = not antiAfk
+ afkBtn.Text = antiAfk and "ANTI-AFK: AN" or "ANTI-AFK: AUS"
+ if idleConnection then idleConnection:Disconnect(); idleConnection=nil end
+ if antiAfk then
+  idleConnection = player.Idled:Connect(function()
+   if not active or not antiAfk then return end
+   local ok,err = pcall(function()
+    VirtualUser:CaptureController()
+    VirtualUser:ClickButton2(Vector2.new(0,0))
+   end)
+   if not ok then
+    warn("[ANTI-AFK] "..tostring(err))
+    info.Text="Anti-AFK Fehler: "..tostring(err):sub(1,70)
+   end
+  end)
+  info.Text="Anti-AFK AN. Reagiert auf das Roblox-Idle-Signal (keine Garantie)."
+ else
+  info.Text="Anti-AFK AUS."
+ end
+end)
+
 purpleBtn.MouseButton1Click:Connect(function()
  autoClick = not autoClick
  table.clear(clickedPurple)

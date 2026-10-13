@@ -1,25 +1,31 @@
 
--- Save The Egg | Auto Purple Point V9
+-- Save The Egg | Auto Purple Point V10
 -- Madium PC
-
 
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local pg = player:WaitForChild("PlayerGui")
 
-local old = pg:FindFirstChild("PurplePointV9")
-if old then
-    old:Destroy()
+-- Alte Version beenden
+if _G.PurplePointStop then
+    _G.PurplePointStop()
 end
 
+local running = true
+local enabled = false
+local clicked = {}
+
+local old = pg:FindFirstChild("PurplePointV10")
+if old then old:Destroy() end
+
 local gui = Instance.new("ScreenGui")
-gui.Name = "PurplePointV9"
+gui.Name = "PurplePointV10"
 gui.ResetOnSpawn = false
 gui.Parent = pg
 
 local frame = Instance.new("Frame")
-frame.Size = UDim2.fromOffset(300, 165)
-frame.Position = UDim2.new(0.5, -150, 0.3, 0)
+frame.Size = UDim2.fromOffset(310, 165)
+frame.Position = UDim2.new(0.5, -155, 0.3, 0)
 frame.BackgroundColor3 = Color3.fromRGB(32, 27, 44)
 frame.Active = true
 frame.Draggable = true
@@ -31,7 +37,7 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, -50, 0, 30)
 title.Position = UDim2.fromOffset(10, 5)
 title.BackgroundTransparency = 1
-title.Text = "SAVE THE EGG | V9"
+title.Text = "SAVE THE EGG | V10"
 title.TextColor3 = Color3.new(1, 1, 1)
 title.Font = Enum.Font.GothamBold
 title.TextSize = 15
@@ -68,27 +74,34 @@ close.TextColor3 = Color3.new(1, 1, 1)
 close.Text = "X"
 close.Parent = frame
 
-local enabled = false
-local running = true
-local clicked = {}
+local function stop()
+    running = false
+    enabled = false
+    gui:Destroy()
+end
+
+_G.PurplePointStop = stop
 
 local function isVisible(obj)
     if not obj:IsA("GuiObject") then
         return false
     end
 
-    if obj.AbsoluteSize.X < 5 or obj.AbsoluteSize.Y < 5 then
+    if obj.AbsoluteSize.X < 5
+        or obj.AbsoluteSize.Y < 5 then
         return false
     end
 
     local current = obj
 
     while current and current ~= pg do
-        if current:IsA("GuiObject") and not current.Visible then
+        if current:IsA("GuiObject")
+            and not current.Visible then
             return false
         end
 
-        if current:IsA("ScreenGui") and not current.Enabled then
+        if current:IsA("ScreenGui")
+            and not current.Enabled then
             return false
         end
 
@@ -98,7 +111,26 @@ local function isVisible(obj)
     return true
 end
 
-local function findTap2()
+-- Mitte des lila Kreises finden
+local function getCircleTarget(obj)
+    local parent = obj.Parent
+
+    if parent then
+        local tap = parent:FindFirstChild("Tap")
+        if tap and isVisible(tap) then
+            return tap
+        end
+
+        local hit = parent:FindFirstChild("Hit")
+        if hit and isVisible(hit) then
+            return hit
+        end
+    end
+
+    return obj
+end
+
+local function findTargets()
     local result = {}
 
     for _, obj in ipairs(pg:GetDescendants()) do
@@ -115,41 +147,39 @@ end
 toggle.MouseButton1Click:Connect(function()
     if type(mousemoveabs) ~= "function"
         or type(mouse1click) ~= "function" then
-        status.Text = "Mausfunktionen nicht unterstützt!"
+        status.Text = "Madium unterstützt Mausfunktionen nicht!"
         return
     end
 
     enabled = not enabled
+    table.clear(clicked)
 
     toggle.Text = enabled
         and "Auto Click Purple Point: ON"
         or "Auto Click Purple Point: OFF"
 
     status.Text = enabled
-        and "Suche lila Punkt ..."
+        and "Suche lila Kreis ..."
         or "Pausiert"
-
-    table.clear(clicked)
 end)
 
-close.MouseButton1Click:Connect(function()
-    enabled = false
-    running = false
-    gui:Destroy()
-end)
+close.MouseButton1Click:Connect(stop)
 
 task.spawn(function()
     while running do
         if enabled then
-            local targets = findTap2()
+            local targets = findTargets()
             local visibleNow = {}
 
             for _, obj in ipairs(targets) do
                 visibleNow[obj] = true
 
-                local pos = obj.AbsolutePosition
-                local size = obj.AbsoluteSize
+                local target = getCircleTarget(obj)
 
+                local pos = target.AbsolutePosition
+                local size = target.AbsoluteSize
+
+                -- Mitte berechnen
                 local x = math.floor(pos.X + size.X / 2)
                 local y = math.floor(pos.Y + size.Y / 2 + 36)
 
@@ -164,9 +194,11 @@ task.spawn(function()
 
                     if ok then
                         clicked[obj] = signature
-                        status.Text = "Geklickt: " .. x .. ", " .. y
+                        status.Text =
+                            "Mitte geklickt: " .. x .. ", " .. y
                     else
-                        status.Text = "Fehler: " .. tostring(err)
+                        status.Text =
+                            "Fehler: " .. tostring(err)
                     end
 
                     break
@@ -180,7 +212,7 @@ task.spawn(function()
             end
 
             if #targets == 0 then
-                status.Text = "Warte auf lila Punkt ..."
+                status.Text = "Warte auf lila Kreis ..."
             end
         end
 

@@ -2,6 +2,7 @@
 -- Inoffizieller Client-Scanner fuer geladene Eier. Keine garantierte Server-Teleportation.
 -- Bereich wird anhand des naechsten geladenen Eis und seiner Hoehe geschaetzt; keine echten Zonengrenzen.
 local Players = game:GetService('Players')
+local TweenService = game:GetService('TweenService')
 local player = Players.LocalPlayer
 local pg = player:WaitForChild('PlayerGui')
 if _G.SaveEggZoneStop then pcall(_G.SaveEggZoneStop) end
@@ -12,6 +13,7 @@ local active=true
 local auto=false
 local busy=false
 local baseCFrame=nil
+local baseVerified=false
 local zoneY=nil
 local zoneCenter=nil
 local maxHorizontal=1200
@@ -20,35 +22,49 @@ local interval=8
 local gui=Instance.new('ScreenGui')
 gui.Name='SaveEggZoneScannerV1'; gui.ResetOnSpawn=false; gui.Parent=pg
 local frame=Instance.new('Frame')
-frame.Size=UDim2.fromOffset(385,425)
-frame.Position=UDim2.new(.5,-192, .15,0)
-frame.BackgroundColor3=Color3.fromRGB(31,26,44)
-frame.Active=true; frame.Draggable=true; frame.Parent=gui
-Instance.new('UICorner',frame).CornerRadius=UDim.new(0,10)
+frame.Size=UDim2.fromOffset(394,455)
+frame.Position=UDim2.new(.5,-197,.15,0)
+frame.BackgroundColor3=Color3.fromRGB(13,13,15)
+frame.BorderSizePixel=0
+frame.Active=true;frame.Draggable=true;frame.Parent=gui
+Instance.new('UICorner',frame).CornerRadius=UDim.new(0,16)
+local outline=Instance.new('UIStroke',frame);outline.Color=Color3.fromRGB(90,90,94);outline.Thickness=1
+local top=Instance.new('Frame',frame);top.Size=UDim2.new(1,0,0,66);top.BackgroundTransparency=1
+local accent=Instance.new('Frame',frame);accent.Size=UDim2.new(1,-24,0,2);accent.Position=UDim2.fromOffset(12,65);accent.BackgroundColor3=Color3.fromRGB(232,232,232);accent.BorderSizePixel=0
 local function label(t,y,h)
- local o=Instance.new('TextLabel');o.Size=UDim2.new(1,-18,0,h);o.Position=UDim2.fromOffset(9,y)
- o.BackgroundTransparency=1;o.TextColor3=Color3.new(1,1,1);o.Font=Enum.Font.Gotham
+ local o=Instance.new('TextLabel');o.Size=UDim2.new(1,-24,0,h);o.Position=UDim2.fromOffset(12,y)
+ o.BackgroundTransparency=1;o.TextColor3=Color3.fromRGB(235,235,235);o.Font=Enum.Font.Gotham
  o.TextSize=13;o.TextWrapped=true;o.Text=t;o.Parent=frame;return o
 end
 local function button(t,y)
- local o=Instance.new('TextButton');o.Size=UDim2.new(1,-20,0,34);o.Position=UDim2.fromOffset(10,y)
- o.BackgroundColor3=Color3.fromRGB(86,65,157);o.TextColor3=Color3.new(1,1,1)
+ local o=Instance.new('TextButton');o.Size=UDim2.new(1,-24,0,39);o.Position=UDim2.fromOffset(12,y)
+ o.BackgroundColor3=Color3.fromRGB(36,36,39);o.AutoButtonColor=false
+ o.TextColor3=Color3.fromRGB(248,248,248)
  o.Font=Enum.Font.GothamBold;o.TextSize=13;o.Text=t;o.Parent=frame
- Instance.new('UICorner',o).CornerRadius=UDim.new(0,7);return o
+ Instance.new('UICorner',o).CornerRadius=UDim.new(0,9)
+ local line=Instance.new('UIStroke',o);line.Color=Color3.fromRGB(75,75,78);line.Thickness=.7
+ o.MouseEnter:Connect(function() TweenService:Create(o,TweenInfo.new(.15),{BackgroundColor3=Color3.fromRGB(78,78,82)}):Play() end)
+ o.MouseLeave:Connect(function() TweenService:Create(o,TweenInfo.new(.15),{BackgroundColor3=Color3.fromRGB(36,36,39)}):Play() end)
+ return o
 end
-local title=label('SAVE THE EGG | ZONE SCANNER V1',5,27);title.Font=Enum.Font.GothamBold
-local zoneBtn=button('Bereich HIER festlegen',38)
-local scanBtn=button('Scan: beste Eier im Bereich',77)
-local tpBtn=button('TP: bestes Ei (einmal)',116)
-local saveBtn=button('Meine Base HIER speichern',155)
-local baseBtn=button('Test: TP zur Base',194)
-local autoBtn=button('Auto Ei -> Base: AUS',233)
-local info=label('Zuerst im Ei-Bereich auf "Bereich HIER festlegen" klicken.',282,128)
-local close=Instance.new('TextButton');close.Size=UDim2.fromOffset(28,25)
-close.Position=UDim2.new(1,-33,0,4);close.Text='X';close.TextColor3=Color3.new(1,1,1)
-close.BackgroundColor3=Color3.fromRGB(175,45,72);close.Parent=frame
+local title=label('SAVE THE EGG',9,28);title.Font=Enum.Font.GothamBlack;title.TextSize=20;title.TextXAlignment=Enum.TextXAlignment.Left
+local subtitle=label('ZONE SCANNER  /  V1',36,22);subtitle.TextSize=11;subtitle.TextColor3=Color3.fromRGB(163,163,167);subtitle.TextXAlignment=Enum.TextXAlignment.Left
+local zoneBtn=button('01   BEREICH FESTLEGEN',79)
+local scanBtn=button('02   BESTES EI SUCHEN',124)
+local tpBtn=button('03   TP ZUM BESTEN EI',169)
+local saveBtn=button('04   BASE HIER SPEICHERN',214)
+local baseBtn=button('05   BASE TP TESTEN',259)
+local autoBtn=button('AUTO EI  ->  BASE: AUS',304)
+local info=label('Bereich festlegen und dann scannen.',357,85)
+info.TextColor3=Color3.fromRGB(198,198,204)
+local close=Instance.new('TextButton');close.Size=UDim2.fromOffset(30,29)
+close.Position=UDim2.new(1,-39,0,15);close.Text='X';close.Font=Enum.Font.GothamBold;close.TextSize=14
+close.TextColor3=Color3.fromRGB(235,235,235);close.BackgroundColor3=Color3.fromRGB(55,55,60);close.Parent=frame
+Instance.new('UICorner',close).CornerRadius=UDim.new(0,8)
 local function stop() active=false;auto=false; if gui.Parent then gui:Destroy() end end
 _G.SaveEggZoneStop=stop;close.MouseButton1Click:Connect(stop)
+frame.Position=UDim2.new(.5,-197,-.65,0)
+TweenService:Create(frame,TweenInfo.new(.45,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Position=UDim2.new(.5,-197,.15,0)}):Play()
 local function rootPart()
  local c=player.Character
  return c,c and c:FindFirstChild('HumanoidRootPart')
@@ -178,18 +194,39 @@ end
 local function teleportTo(cframe,desc)
  local char,root=rootPart()
  if not root then info.Text='Charakter nicht bereit.';return false end
- local before=root.Position
+ local hum=char:FindFirstChildOfClass('Humanoid')
+ local wasSeated=hum and hum.Sit
+ -- Bei Reittieren bewegt sich die eigene Figur moeglicherweise nicht unabhaengig vom Pet.
+ root.AssemblyLinearVelocity=Vector3.zero
+ root.AssemblyAngularVelocity=Vector3.zero
  char:PivotTo(cframe)
- task.wait(1.1)
+ task.wait(1.2)
  local afterRoot=char:FindFirstChild('HumanoidRootPart')
  if not afterRoot then info.Text='Teleport: Charakter neu geladen.';return false end
- local desired=cframe.Position
- if (afterRoot.Position-desired).Magnitude>18 then
-  info.Text=desc..': Zurueckgesetzt oder blockiert (Abstand '..math.floor((afterRoot.Position-desired).Magnitude)..').'
+ local errorDist=(afterRoot.Position-cframe.Position).Magnitude
+ if errorDist>18 then
+  info.Text=desc..': zurueckgesetzt/blockiert ('..math.floor(errorDist)..' Studs).'
+  print('[ZONE TP]',desc,'Abweichung',errorDist,'Sitzt:',wasSeated)
   return false
  end
- info.Text=desc..': Ziel erreicht (clientseitig).'
+ info.Text=desc..': Position erreicht (clientseitig).'
  return true
+end
+local function saveBase()
+ local char,root=rootPart()
+ if not root then info.Text='Base: Charakter nicht bereit.';return end
+ -- Root-Position und Blickrichtung speichern, nicht das Model-Pivot des gesamten Pets.
+ baseCFrame=root.CFrame
+ baseVerified=false
+ info.Text='Baseposition gespeichert. Bitte Base-TP testen.'
+ print('[BASE] Gespeicherte Position:',baseCFrame.Position)
+end
+local function tpBase()
+ if not baseCFrame then info.Text='Zuerst Base speichern.';return false end
+ local target=baseCFrame+Vector3.new(0,3,0)
+ local ok=teleportTo(target,'Base TP')
+ if ok then baseVerified=true end
+ return ok
 end
 local function eggTP(e)
  if not e then return false end
@@ -212,18 +249,17 @@ tpBtn.MouseButton1Click:Connect(function()
  busy=false
 end)
 saveBtn.MouseButton1Click:Connect(function()
- local char,root=rootPart()
- if root then baseCFrame=char:GetPivot(); info.Text='Base gespeichert. Bitte Base-Test ausfuehren.' end
+ saveBase()
 end)
 baseBtn.MouseButton1Click:Connect(function()
  if busy then return end
  if not baseCFrame then info.Text='Bitte zuerst Base speichern.';return end
- busy=true;teleportTo(baseCFrame,'Base-Teleport');busy=false
+ busy=true;tpBase();busy=false
 end)
 autoBtn.MouseButton1Click:Connect(function()
- if not auto and not baseCFrame then info.Text='Zuerst Base speichern und testen.';return end
+ if not auto and not baseVerified then info.Text='Zuerst Base speichern UND Base TP erfolgreich testen.';return end
  if not auto and not zoneY then info.Text='Zuerst im Ei-Bereich Bereich setzen.';return end
- auto=not auto;autoBtn.Text=auto and 'Auto Ei -> Base: AN' or 'Auto Ei -> Base: AUS'
+ auto=not auto;autoBtn.Text=auto and 'AUTO EI  ->  BASE: AN' or 'AUTO EI  ->  BASE: AUS'
 end)
 task.spawn(function()
  while active do
@@ -237,11 +273,11 @@ task.spawn(function()
      info.Text='Beim Ei. Einsammeln mit E; Rueckkehr zur Base in 5 Sekunden.'
      task.wait(5)
      if auto and baseCFrame then
-      local reached=teleportTo(baseCFrame,'Base-Teleport')
-      if not reached then auto=false;autoBtn.Text='Auto Ei -> Base: AUS' end
+      local reached=tpBase()
+      if not reached then auto=false;autoBtn.Text='AUTO EI  ->  BASE: AUS' end
      end
     else
-     auto=false;autoBtn.Text='Auto Ei -> Base: AUS'
+     auto=false;autoBtn.Text='AUTO EI  ->  BASE: AUS'
     end
    end
    busy=false

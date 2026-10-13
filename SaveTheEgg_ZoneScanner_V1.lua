@@ -1,6 +1,6 @@
 -- SAVE THE EGG | ZONE SCANNER V1 - Neuaufbau
 -- Inoffizieller Client-Scanner fuer geladene Eier. Keine garantierte Server-Teleportation.
--- Bereich wird per Spielerposition/naechstem Eier-Hoehencluster bestimmt.
+-- Bereich wird anhand des naechsten geladenen Eis und seiner Hoehe geschaetzt; keine echten Zonengrenzen.
 local Players = game:GetService('Players')
 local player = Players.LocalPlayer
 local pg = player:WaitForChild('PlayerGui')
@@ -14,7 +14,7 @@ local busy=false
 local baseCFrame=nil
 local zoneY=nil
 local zoneCenter=nil
-local maxHorizontal=700
+local maxHorizontal=1200
 local heightTolerance=18
 local interval=8
 local gui=Instance.new('ScreenGui')
@@ -137,14 +137,15 @@ local function setZone()
   local d=(egg.position-r.Position).Magnitude
   if d<nd then nd=d;nearest=egg end
  end
- if not nearest or nd>180 then
-  info.Text='Stell dich neben ein Ei in deinem gewuenschten Bereich (max. 180 Studs).'
+ if not nearest then
+  info.Text='Kein geladenes Ei gefunden.'
   return
  end
  zoneY=nearest.position.Y
- zoneCenter=Vector3.new(r.Position.X,0,r.Position.Z)
- info.Text='Bereich gesetzt: Ei-Hoehe Y '..string.format('%.1f',zoneY)..'. Jetzt Scan druecken.'
- print('[ZONE] Anchor '..nearest.name..' | Hoehe '..zoneY)
+ -- Zone um das Anker-Ei statt die aktuelle Spielerposition zentrieren.
+ zoneCenter=Vector3.new(nearest.position.X,0,nearest.position.Z)
+ info.Text='Bereich gesetzt bei '..nearest.name..' (Abstand '..math.floor(nd)..' Studs). Jetzt Scan druecken.'
+ print('[ZONE] Anchor '..nearest.name..' | Hoehe '..zoneY..' | Suchradius '..maxHorizontal)
 end
 local function candidates()
  local eggs,unparsed=loadedEggs()

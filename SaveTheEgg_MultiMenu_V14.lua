@@ -32,6 +32,7 @@ local clicked = {}
 local lastEggKey = nil
 local savedBaseCFrame = nil
 local tpBusy = false
+local lastScanDetails = {}
 
 for _, oldName in ipairs({"SaveEggMultiV14", "SaveEggMultiV15", "SaveEggMultiV16"}) do
     local old = pg:FindFirstChild(oldName)
@@ -544,6 +545,7 @@ local function findBestLuckEgg()
     local eligible = 0
     local skipped = 0
     local unverified = 0
+    local details = {}
 
     for _, prompt in ipairs(workspace:GetDescendants()) do
         if prompt:IsA("ProximityPrompt") and prompt.Enabled then
@@ -588,12 +590,17 @@ local function findBestLuckEgg()
                         end
                     end
 
+                    local entry = {name = prompt.ObjectText, luck = luck, required = required, position = pos, status = "unknown"}
+                    table.insert(details, entry)
                     if jump == nil then
+                        entry.status = "jump unknown"
                         -- Ohne auslesbaren Spielerwert kein automatischer TP.
                         unverified += 1
                     elseif required and jump < required then
+                        entry.status = "locked"
                         skipped += 1
                     elseif luck and pos then
+                        entry.status = required and "eligible" or "unverified"
                         -- Ohne bekannte Anforderung ist die Freigabe
                         -- nur eine Schaetzung (z.B. normales Start-Ei).
                         if not required then unverified += 1 end
@@ -610,6 +617,8 @@ local function findBestLuckEgg()
             end
         end
     end
+    table.sort(details, function(a,b) return (a.luck or -1) > (b.luck or -1) end)
+    lastScanDetails = details
     return best, count, jump, skipped, unverified
 end
 
@@ -622,6 +631,11 @@ end
 
 local function scanEggs()
     local best, count, jump, skipped, unverified = findBestLuckEgg()
+    print("[Egg V14] Scan: " .. count .. " Eier; Jump " .. showJump(jump))
+    for i = 1, math.min(12, #lastScanDetails) do
+        local e = lastScanDetails[i]
+        print(string.format("[Egg V14] #%d %s | Luck %s | Mindest-Jump %s | %s", i, e.name, showJump(e.luck), showJump(e.required), e.status))
+    end
     if best then
         eggStatus.Text = "Jump: " .. showJump(jump)
             .. " | Eier: " .. count
@@ -640,23 +654,24 @@ end
 -- Sichere Position auf freiem Boden seitlich neben dem Ei finden.
 -- Ein groesserer Abstand vermeidet Kollisionen mit dem getragenen Pet.
 local function safeLanding(eggPosition, character)
+    -- Nah am Ei bleiben: weit entfernte Landungen liegen oft ausserhalb
+    -- der Reichweite des Pick-Up-Prompts.
     local offsets = {
-        Vector3.new(9, 0, 0), Vector3.new(-9, 0, 0),
-        Vector3.new(0, 0, 9), Vector3.new(0, 0, -9),
-        Vector3.new(13, 0, 0), Vector3.new(0, 0, 13)
+        Vector3.new(4, 0, 0), Vector3.new(-4, 0, 0),
+        Vector3.new(0, 0, 4), Vector3.new(0, 0, -4),
+        Vector3.new(6, 0, 0), Vector3.new(-6, 0, 0)
     }
     local params = RaycastParams.new()
     params.FilterType = Enum.RaycastFilterType.Exclude
     params.FilterDescendantsInstances = {character}
     for _, offset in ipairs(offsets) do
         local probe = eggPosition + offset
-        local hit = workspace:Raycast(probe + Vector3.new(0, 25, 0), Vector3.new(0, -75, 0), params)
-        if hit and hit.Normal.Y > 0.65 then
-            -- Wenigstens 5 Studs ueber dem Boden. Nicht im Ei/Pet spawnen.
-            return CFrame.new(hit.Position + Vector3.new(0, 5.5, 0), eggPosition)
+        local hit = workspace:Raycast(probe + Vector3.new(0, 12, 0), Vector3.new(0, -35, 0), params)
+        if hit and hit.Normal.Y > 0.7 and hit.Position.Y <= eggPosition.Y + 3 then
+            return CFrame.new(hit.Position + Vector3.new(0, 4.5, 0), eggPosition)
         end
     end
-    return CFrame.new(eggPosition + Vector3.new(9, 9, 0))
+    return CFrame.new(eggPosition + Vector3.new(4, 5, 0), eggPosition)
 end
 
 local function getCharacterRoot()
@@ -750,15 +765,15 @@ local function teleportBest(automatic)
         tpBusy = false
         return
     end
-    eggStatus.Text = "TP zu " .. egg.name .. " | Luck: " .. showJump(egg.luck)
+    eggStatus.Text = "TP-Versuch: " .. egg.name .. " | Luck: " .. showJump(egg.luck)
 
     -- Wird die Position vom Server zurueckgesetzt, nicht staendig neu teleportieren.
     task.wait(0.8)
     local _, currentRoot = getCharacterRoot()
-    if not currentRoot or (currentRoot.Position - destination.Position).Magnitude > 25 then
+    if not currentRoot or (currentRoot.Position - destination.Position).Magnitude > 17 then
         autoTP = false
         autoTPButton.Text = "Auto TP Best Luck: OFF"
-        eggStatus.Text = "TP vom Spiel zurueckgesetzt. Bereich/Interaktion pruefen."
+        eggStatus.Text = "TP vom Spiel zurueckgesetzt. Server erlaubt Position eventuell nicht."
         tpBusy = false
         return
     end

@@ -150,7 +150,7 @@ task.spawn(function()
                 local size = obj.AbsoluteSize
 
                 local x = math.floor(pos.X + size.X / 2)
-                local y = math.floor(pos.Y + size.Y / 2)
+                local y = math.floor(pos.Y + size.Y / 2 + 36)
 
                 local signature = x .. ":" .. y
 

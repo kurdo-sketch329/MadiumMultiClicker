@@ -1,25 +1,28 @@
 
--- Save The Egg | Auto Purple Point V10
+-- Save The Egg | Auto Purple Point V11
 -- Madium PC
+-- Haelt die linke Maustaste 1 Sekunde gedrueckt
 
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local pg = player:WaitForChild("PlayerGui")
 
--- Alte Version beenden
+-- Vorherige V11-Instanz beenden
 if _G.PurplePointStop then
-    _G.PurplePointStop()
+    pcall(_G.PurplePointStop)
 end
 
 local running = true
 local enabled = false
 local clicked = {}
 
-local old = pg:FindFirstChild("PurplePointV10")
-if old then old:Destroy() end
+local old = pg:FindFirstChild("PurplePointV11")
+if old then
+    old:Destroy()
+end
 
 local gui = Instance.new("ScreenGui")
-gui.Name = "PurplePointV10"
+gui.Name = "PurplePointV11"
 gui.ResetOnSpawn = false
 gui.Parent = pg
 
@@ -37,7 +40,7 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, -50, 0, 30)
 title.Position = UDim2.fromOffset(10, 5)
 title.BackgroundTransparency = 1
-title.Text = "SAVE THE EGG | V10"
+title.Text = "SAVE THE EGG | V11"
 title.TextColor3 = Color3.new(1, 1, 1)
 title.Font = Enum.Font.GothamBold
 title.TextSize = 15
@@ -63,7 +66,7 @@ status.TextColor3 = Color3.new(1, 1, 1)
 status.Font = Enum.Font.Gotham
 status.TextSize = 13
 status.TextWrapped = true
-status.Text = "Bereit"
+status.Text = "Bereit | Klickdauer: 1 Sekunde"
 status.Parent = frame
 
 local close = Instance.new("TextButton")
@@ -111,7 +114,7 @@ local function isVisible(obj)
     return true
 end
 
--- Mitte des lila Kreises finden
+-- Groesseres Kreiselement bevorzugen
 local function getCircleTarget(obj)
     local parent = obj.Parent
 
@@ -144,10 +147,42 @@ local function findTargets()
     return result
 end
 
+-- Klickfunktion mit 1 Sekunde Haltezeit
+local function performClick(x, y)
+    mousemoveabs(x, y)
+    task.wait(0.15)
+
+    if type(mouse1press) == "function"
+        and type(mouse1release) == "function" then
+
+        mouse1press()
+        task.wait(1)
+        mouse1release()
+
+    elseif type(mouse1click) == "function" then
+
+        -- Fallback: kurzer Klick, falls Halten nicht
+        -- vom Executor unterstuetzt wird
+        mouse1click()
+
+    else
+        error("Keine Klickfunktion vorhanden")
+    end
+end
+
 toggle.MouseButton1Click:Connect(function()
-    if type(mousemoveabs) ~= "function"
-        or type(mouse1click) ~= "function" then
-        status.Text = "Madium unterstützt Mausfunktionen nicht!"
+    local canMove =
+        type(mousemoveabs) == "function"
+
+    local canClick =
+        type(mouse1click) == "function"
+        or (
+            type(mouse1press) == "function"
+            and type(mouse1release) == "function"
+        )
+
+    if not canMove or not canClick then
+        status.Text = "Madium: Mausfunktion fehlt!"
         return
     end
 
@@ -175,43 +210,36 @@ task.spawn(function()
                 visibleNow[obj] = true
 
                 local target = getCircleTarget(obj)
-
                 local pos = target.AbsolutePosition
                 local size = target.AbsoluteSize
 
-                -- Mitte berechnen
-                local x = math.floor(pos.X + size.X / 2)
-                local y = math.floor(pos.Y + size.Y / 2 + 60)
+                local x = math.floor(
+                    pos.X + size.X / 2
+                )
+
+                -- Bisheriger Y-Offset: +60
+                local y = math.floor(
+                    pos.Y + size.Y / 2 + 60
+                )
 
                 local signature = x .. ":" .. y
 
                 if clicked[obj] ~= signature then
+                    status.Text = "Klicke 1 Sekunde ..."
+
                     local ok, err = pcall(function()
-                       mousemoveabs(x, y)
-task.wait(0.15)
-
-
-if type(mousemoveabs) ~= "function"
-    or (
-        type(mouse1click) ~= "function"
-        and not (
-            type(mouse1press) == "function"
-            and type(mouse1release) == "function"
-        )
-    ) then
-    status.Text = "Mausfunktionen nicht unterstützt!"
-    return
-end
-
+                        performClick(x, y)
                     end)
 
                     if ok then
                         clicked[obj] = signature
                         status.Text =
-                            "Mitte geklickt: " .. x .. ", " .. y
+                            "Klick ausgefuehrt: "
+                            .. x .. ", " .. y
                     else
                         status.Text =
-                            "Fehler: " .. tostring(err)
+                            "Klickfehler: "
+                            .. tostring(err):sub(1, 70)
                     end
 
                     break

@@ -1,337 +1,482 @@
--- SAVE THE EGG | ZONE SCANNER V3 | EGG TOUR
--- Client-side, unofficial. Server may reject teleports. Only streamed eggs are discoverable.
-local Players = game:GetService('Players')
-local TweenService = game:GetService('TweenService')
-local VIM = game:GetService('VirtualInputManager')
-local VirtualUser = game:GetService('VirtualUser')
+-- SAVE THE EGG | ZONE SCANNER V2 | SMART EGG MEMORY
+-- Client-side tool; TP can be rejected by the Roblox server.
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local VirtualUser = game:GetService("VirtualUser")
 local player = Players.LocalPlayer
-local pg = player:WaitForChild('PlayerGui')
+local pg = player:WaitForChild("PlayerGui")
 if _G.SaveEggZoneStop then pcall(_G.SaveEggZoneStop) end
-for _,name in ipairs({'SaveEggZoneScannerV1','SaveEggZoneScannerV2','SaveEggZoneScannerV3'}) do
- local g=pg:FindFirstChild(name); if g then g:Destroy() end
+for _, name in ipairs({"SaveEggZoneScannerV1", "SaveEggZoneScannerV2"}) do
+ local old = pg:FindFirstChild(name)
+ if old then old:Destroy() end
 end
-local running=true
-local busy=false
-local cancelTour=false
-local autoClick=false
-local antiAfk=false
-local idleConnection=nil
-local clicked={}
-local zoneY=nil
-local heightTolerance=18 -- approximate zone, not official game boundary
-local selectedEgg=nil
-local tourCache={}
-local gui=Instance.new('ScreenGui');gui.Name='SaveEggZoneScannerV3';gui.ResetOnSpawn=false;gui.Parent=pg
-local frame=Instance.new('Frame');frame.Size=UDim2.fromOffset(420,400)
-frame.Position=UDim2.new(.5,-210,.5,-200);frame.BackgroundColor3=Color3.fromRGB(12,12,13)
-frame.Active=true;frame.Draggable=true;frame.BorderSizePixel=0;frame.Parent=gui
-Instance.new('UIStroke',frame).Color=Color3.fromRGB(220,220,220)
-local title=Instance.new('TextLabel');title.Size=UDim2.new(1,-54,0,34);title.Position=UDim2.fromOffset(13,5)
-title.Text='SAVE THE EGG  //  V3';title.TextColor3=Color3.new(1,1,1)
-title.BackgroundTransparency=1;title.Font=Enum.Font.Code;title.TextSize=19
-title.TextXAlignment=Enum.TextXAlignment.Left;title.Parent=frame
-local close=Instance.new('TextButton');close.Size=UDim2.fromOffset(30,28);close.Position=UDim2.new(1,-37,0,7)
-close.Text='X';close.Font=Enum.Font.Code;close.TextSize=18
-close.TextColor3=Color3.new(1,1,1);close.BackgroundColor3=Color3.fromRGB(35,35,35);close.Parent=frame
-local function button(label,parent,y,h)
- local b=Instance.new('TextButton');b.Size=UDim2.new(1,-24,0,h or 36);b.Position=UDim2.fromOffset(12,y)
- b.Text=label;b.Font=Enum.Font.Code;b.TextSize=15;b.TextColor3=Color3.new(1,1,1)
- b.BackgroundColor3=Color3.fromRGB(32,32,34);b.AutoButtonColor=false;b.Parent=parent
- Instance.new('UIStroke',b).Color=Color3.fromRGB(110,110,110)
- b.MouseEnter:Connect(function() TweenService:Create(b,TweenInfo.new(.15),{BackgroundColor3=Color3.fromRGB(84,84,84)}):Play() end)
- b.MouseLeave:Connect(function() TweenService:Create(b,TweenInfo.new(.15),{BackgroundColor3=Color3.fromRGB(32,32,34)}):Play() end)
+local active, autoClick, busy, autoEgg = true, false, false, false
+local antiAfk = false
+local idleConnection = nil
+local clickedPurple = {}
+local PURPLE_Y_OFFSET = 60
+local PURPLE_HOLD_TIME = 1
+local PURPLE_DELAY = 0.08
+local zoneY, zoneCenter = nil, nil
+local heightTolerance = 18
+local selectedEgg = nil
+-- Memory only stores observations, not proof an egg still exists.
+local eggMemory = {}
+local MEMORY_SECONDS = 600
+local lastScanAt = 0
+local function eggKey(e)
+ local p=e.position
+ return string.format('%s:%.0f:%.0f:%.0f',e.name,math.floor(p.X/4),math.floor(p.Y/4),math.floor(p.Z/4))
+end
+local gui = Instance.new("ScreenGui")
+gui.Name = "SaveEggZoneScannerV2"
+gui.ResetOnSpawn = false
+gui.Parent = pg
+local frame = Instance.new("Frame")
+frame.Size = UDim2.fromOffset(410, 360)
+frame.Position = UDim2.new(.5,-205,.5,-180)
+frame.BackgroundColor3 = Color3.fromRGB(12,12,13)
+frame.BorderSizePixel = 0
+frame.Active = true
+frame.Draggable = true
+frame.Parent = gui
+Instance.new("UIStroke",frame).Color = Color3.fromRGB(210,210,210)
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1,-55,0,34)
+title.Position = UDim2.fromOffset(15,5)
+title.BackgroundTransparency = 1
+title.Text = "SAVE THE EGG  //  SMART V2"
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Font = Enum.Font.Code
+title.TextSize = 19
+title.TextColor3 = Color3.fromRGB(245,245,245)
+title.Parent = frame
+local close = Instance.new("TextButton")
+close.Size = UDim2.fromOffset(30,29)
+close.Position = UDim2.new(1,-37,0,7)
+close.Text = "X"
+close.Font = Enum.Font.Code
+close.TextSize = 19
+close.BackgroundColor3 = Color3.fromRGB(32,32,34)
+close.TextColor3 = Color3.new(1,1,1)
+close.Parent = frame
+local function button(text, parent, y, height)
+ local o = Instance.new("TextButton")
+ o.Size = UDim2.new(1,-24,0,height or 37)
+ o.Position = UDim2.fromOffset(12,y)
+ o.Text = text
+ o.Font = Enum.Font.Code
+ o.TextSize = 16
+ o.BackgroundColor3 = Color3.fromRGB(29,29,31)
+ o.TextColor3 = Color3.fromRGB(248,248,248)
+ o.AutoButtonColor = false
+ o.Parent = parent
+ local st = Instance.new("UIStroke",o)
+ st.Color = Color3.fromRGB(105,105,105)
+ o.MouseEnter:Connect(function()
+  TweenService:Create(o,TweenInfo.new(.14),{BackgroundColor3=Color3.fromRGB(85,85,85)}):Play()
+ end)
+ o.MouseLeave:Connect(function()
+  TweenService:Create(o,TweenInfo.new(.14),{BackgroundColor3=Color3.fromRGB(29,29,31)}):Play()
+ end)
+ return o
+end
+local tabRow = Instance.new("Frame")
+tabRow.Size = UDim2.new(1,-24,0,35)
+tabRow.Position = UDim2.fromOffset(12,46)
+tabRow.BackgroundTransparency = 1
+tabRow.Parent = frame
+local function tab(name,x)
+ local b = Instance.new("TextButton")
+ b.Size = UDim2.new(.5,-3,1,0)
+ b.Position = UDim2.new(x, x==0 and 0 or 3,0,0)
+ b.Text = name
+ b.Font = Enum.Font.Code
+ b.TextSize = 15
+ b.TextColor3 = Color3.new(1,1,1)
+ b.BackgroundColor3 = Color3.fromRGB(35,35,37)
+ b.Parent = tabRow
+ Instance.new("UIStroke",b).Color = Color3.fromRGB(140,140,140)
  return b
 end
-local tabs=Instance.new('Frame');tabs.Size=UDim2.new(1,-24,0,34);tabs.Position=UDim2.fromOffset(12,45)
-tabs.BackgroundTransparency=1;tabs.Parent=frame
-local tabEgg=Instance.new('TextButton');tabEgg.Size=UDim2.new(.5,-3,1,0);tabEgg.Text='EASY GET EGG';tabEgg.Parent=tabs
-local tabTrain=Instance.new('TextButton');tabTrain.Size=UDim2.new(.5,-3,1,0);tabTrain.Position=UDim2.new(.5,3,0,0);tabTrain.Text='AUTO TRAIN';tabTrain.Parent=tabs
-for _,b in ipairs({tabEgg,tabTrain}) do
- b.Font=Enum.Font.Code;b.TextSize=15;b.TextColor3=Color3.new(1,1,1)
- b.BackgroundColor3=Color3.fromRGB(35,35,37);Instance.new('UIStroke',b).Color=Color3.fromRGB(140,140,140)
-end
-local eggPage=Instance.new('Frame');eggPage.Size=UDim2.new(1,-10,0,240);eggPage.Position=UDim2.fromOffset(5,88)
-eggPage.BackgroundTransparency=1;eggPage.Parent=frame
-local trainPage=eggPage:Clone();trainPage.Visible=false;trainPage.Parent=frame
-local zoneBtn=button('[ 1 ] BEREICH HIER FESTLEGEN',eggPage,4)
-local scanBtn=button('[ 2 ] SCAN EGGS (SOFORT)',eggPage,45)
-local tourBtn=button('[ 3 ] EGG TOUR: ALLE PRUEFEN',eggPage,86)
-local tpBtn=button('[ 4 ] TP BESTES GEFUNDENES EI',eggPage,127)
-local cancelBtn=button('TOUR STOPPEN',eggPage,168)
-local purpleBtn=button('AUTO CLICK LILA PUNKTE: AUS',trainPage,4)
-local afkBtn=button('ANTI-AFK: AUS',trainPage,45)
-local trainLabel=Instance.new('TextLabel');trainLabel.Position=UDim2.fromOffset(12,97)
-trainLabel.Size=UDim2.new(1,-24,0,92);trainLabel.TextWrapped=true
-trainLabel.Text='Auto Train klickt sichtbare Lila-Punkte. Anti-AFK versucht, bei Inaktivitaet Eingaben zu simulieren.'
-trainLabel.BackgroundTransparency=1;trainLabel.TextColor3=Color3.fromRGB(224,224,224)
-trainLabel.Font=Enum.Font.Code;trainLabel.TextSize=14;trainLabel.Parent=trainPage
-local info=Instance.new('TextLabel');info.Size=UDim2.new(1,-24,0,73);info.Position=UDim2.fromOffset(12,315)
-info.BackgroundColor3=Color3.fromRGB(25,25,27);info.TextColor3=Color3.new(1,1,1)
-info.TextWrapped=true;info.Font=Enum.Font.Code;info.TextSize=13
-info.Text='Bereich festlegen; danach Scan oder Egg Tour starten.';info.Parent=frame
+local eggTab = tab("EASY GET EGG",0)
+local trainTab = tab("AUTO TRAIN",.5)
+local eggPage = Instance.new("Frame")
+eggPage.Size = UDim2.new(1,-10,0,190)
+eggPage.Position = UDim2.fromOffset(5,91)
+eggPage.BackgroundTransparency = 1
+eggPage.Parent = frame
+local trainPage = eggPage:Clone()
+trainPage.Name = "TrainPage"
+trainPage.Visible = false
+trainPage.Parent = frame
+for _,o in ipairs(trainPage:GetChildren()) do o:Destroy() end
+local zoneBtn = button("[ 1 ]  BEREICH HIER FESTLEGEN",eggPage,5)
+local scanBtn = button("[ 2 ]  SCAN EGGS (MAX LUCK)",eggPage,49)
+local tpBtn = button("[ 3 ]  TP BEST EGG",eggPage,93)
+local autoBtn = button("AUTO BEST EGG: AUS",eggPage,137)
+local purpleBtn = button("AUTO CLICK LILA PUNKTE: AUS",trainPage,5)
+local afkBtn = button("ANTI-AFK: AUS",trainPage,49)
+local trainInfo = Instance.new("TextLabel")
+trainInfo.Size = UDim2.new(1,-24,0,88)
+trainInfo.Position = UDim2.fromOffset(12,98)
+trainInfo.BackgroundTransparency = 1
+trainInfo.Text = "Lila Punkte: automatisches Training.\nAnti-AFK: simuliert Eingabe, wenn Roblox dich als inaktiv erkennt."
+trainInfo.TextWrapped = true
+trainInfo.Font = Enum.Font.Code
+trainInfo.TextSize = 15
+trainInfo.TextColor3 = Color3.fromRGB(210,210,210)
+trainInfo.Parent = trainPage
+local info = Instance.new("TextLabel")
+info.Size = UDim2.new(1,-30,0,65)
+info.Position = UDim2.fromOffset(15,287)
+info.BackgroundColor3 = Color3.fromRGB(20,20,22)
+info.TextColor3 = Color3.fromRGB(226,226,226)
+info.Font = Enum.Font.Code
+info.TextSize = 13
+info.TextWrapped = true
+info.Text = "Bereich festlegen, dann bestes Ei suchen."
+info.Parent = frame
 local function showPage(egg)
- eggPage.Visible=egg;trainPage.Visible=not egg
- tabEgg.BackgroundColor3=egg and Color3.fromRGB(100,100,100) or Color3.fromRGB(35,35,37)
- tabTrain.BackgroundColor3=not egg and Color3.fromRGB(100,100,100) or Color3.fromRGB(35,35,37)
+ eggPage.Visible = egg
+ trainPage.Visible = not egg
+ eggTab.BackgroundColor3 = egg and Color3.fromRGB(100,100,103) or Color3.fromRGB(35,35,37)
+ trainTab.BackgroundColor3 = (not egg) and Color3.fromRGB(100,100,103) or Color3.fromRGB(35,35,37)
 end
+eggTab.MouseButton1Click:Connect(function() showPage(true) end)
+trainTab.MouseButton1Click:Connect(function() showPage(false) end)
 showPage(true)
-tabEgg.MouseButton1Click:Connect(function()showPage(true)end)
-tabTrain.MouseButton1Click:Connect(function()showPage(false)end)
 local function stop()
- running=false;cancelTour=true;autoClick=false;antiAfk=false
- if idleConnection then idleConnection:Disconnect() end
+ active=false
+ autoClick=false
+ autoEgg=false
+ antiAfk=false
+ if idleConnection then idleConnection:Disconnect(); idleConnection=nil end
  if gui.Parent then gui:Destroy() end
 end
-_G.SaveEggZoneStop=stop;close.MouseButton1Click:Connect(stop)
-TweenService:Create(frame,TweenInfo.new(.35,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Position=UDim2.new(.5,-210,.5,-200)}):Play()
-local function characterRoot()
+_G.SaveEggZoneStop = stop
+close.MouseButton1Click:Connect(stop)
+frame.Position = UDim2.new(.5,-205,.5,-280)
+TweenService:Create(frame,TweenInfo.new(.4,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Position=UDim2.new(.5,-205,.5,-180)}):Play()
+local function rootPart()
  local c=player.Character
  return c,c and c:FindFirstChild('HumanoidRootPart')
 end
-local multipliers={K=1e3,M=1e6,B=1e9,T=1e12,Q=1e15}
-local function parseLuck(s)
- if type(s)~='string' then return nil end
- s=s:gsub('%s+',''):gsub(',','')
- local a,b=s:match('^([%d%.]+)([kKmMbBtTqQ]?)$')
- if not a then return nil end
- local n=tonumber(a)
- return n and n*(multipliers[b:upper()] or 1) or nil
+local mult={K=1e3,M=1e6,B=1e9,T=1e12,Q=1e15}
+local function number(v)
+ if type(v)~='string' then return nil end
+ v=v:gsub('%s+',''):gsub(',','')
+ local raw,suf=v:match('^([%d%.]+)([kKmMbBtTqQ]?)$')
+ if not raw then return nil end
+ local n=tonumber(raw)
+ if not n then return nil end
+ return n*(mult[suf:upper()] or 1)
 end
 local function fmt(n)
+ if not n then return '?' end
  if n>=1e12 then return string.format('%.2fT',n/1e12) end
  if n>=1e9 then return string.format('%.2fB',n/1e9) end
  if n>=1e6 then return string.format('%.2fM',n/1e6) end
  if n>=1e3 then return string.format('%.1fK',n/1e3) end
  return tostring(math.floor(n))
 end
-local function eggRoot(prompt)
- local p=prompt.Parent
- for _=1,10 do
-  if not p or p==workspace then break end
-  if p.Name=='EggRoot' then return p end
-  p=p.Parent
+local function eggRootFromPrompt(prompt)
+ local node=prompt.Parent
+ for i=1,10 do
+  if not node or node==workspace then break end
+  if node.Name=='EggRoot' then return node end
+  node=node.Parent
  end
+ return nil
 end
-local function eggPos(root,prompt)
- local p=prompt.Parent
- if p:IsA('Attachment') then return p.WorldPosition end
- if p:IsA('BasePart') then return p.Position end
- if root:IsA('BasePart') then return root.Position end
+local function eggPosition(root,prompt)
+ -- Position des Pickup-Prompts bevorzugen statt Model-Pivot
+ local par=prompt.Parent
+ if par:IsA('Attachment') then return par.WorldPosition end
+ if par:IsA('BasePart') then return par.Position end
  if root:IsA('Model') then
   local part=root:FindFirstChildWhichIsA('BasePart',true)
-  return part and part.Position or root:GetPivot().Position
+  if part then return part.Position end
+  return root:GetPivot().Position
  end
+ if root:IsA('BasePart') then return root.Position end
+ return nil
 end
-local function luckFrom(root)
+local function readLuck(root)
  local badge=root:FindFirstChild('WeightBadge',true)
- local luck=badge and badge:FindFirstChild('Luck',true)
+ if not badge then return nil end
+ local luck=badge:FindFirstChild('Luck',true)
  if not luck then return nil end
- if luck:IsA('TextLabel') or luck:IsA('TextButton') then
-  local v=parseLuck(luck.Text);if v then return v end
- end
- for _,o in ipairs(luck:GetDescendants()) do
-  if o:IsA('TextLabel') or o:IsA('TextButton') then
-   local v=parseLuck(o.Text);if v then return v end
+ if luck:IsA('TextLabel') or luck:IsA('TextButton') then return number(luck.Text) end
+ for _,x in ipairs(luck:GetDescendants()) do
+  if x:IsA('TextLabel') or x:IsA('TextButton') then
+   local v=number(x.Text);if v then return v end
   end
  end
+ return nil
 end
-local function getEggs()
- local eggs,seen={},{}
- for _,prompt in ipairs(workspace:GetDescendants()) do
-  if prompt:IsA('ProximityPrompt') and prompt.Enabled then
-   local action=(prompt.ActionText or ''):lower()
-   local name=(prompt.ObjectText or ''):lower()
+local function loadedEggs()
+ local arr={};local seen={};local unparsed=0
+ for _,p in ipairs(workspace:GetDescendants()) do
+  if p:IsA('ProximityPrompt') and p.Enabled then
+   local action=(p.ActionText or ''):lower()
+   local name=(p.ObjectText or ''):lower()
    if (action:find('pick',1,true) or action:find('collect',1,true)) and name:find('egg',1,true) then
-    local root=eggRoot(prompt)
+    local root=eggRootFromPrompt(p)
     if root and not seen[root] then
      seen[root]=true
-     local p=eggPos(root,prompt)
-     if p then table.insert(eggs,{root=root,prompt=prompt,name=prompt.ObjectText,position=p,luck=luckFrom(root)}) end
+     local pos=eggPosition(root,p)
+     local luck=readLuck(root)
+     if pos and luck then table.insert(arr,{name=p.ObjectText,position=pos,luck=luck,prompt=p,root=root})
+     else unparsed=unparsed+1 end
     end
    end
   end
  end
- return eggs
-end
-local function inZone(e)
- return zoneY and math.abs(e.position.Y-zoneY)<=heightTolerance
+ return arr,unparsed
 end
 local function setZone()
- if busy then return end
- local _,r=characterRoot();if not r then info.Text='Charakter nicht bereit.';return end
- local near,dist=nil,math.huge
- for _,e in ipairs(getEggs()) do
-  local d=(e.position-r.Position).Magnitude
-  if d<dist then near=e;dist=d end
+ local _,r=rootPart()
+ if not r then info.Text='Charakter noch nicht bereit.';return end
+ local arr=loadedEggs()
+ if #arr==0 then info.Text='Noch keine Eier geladen. Geh naeher zu einem Ei.';return end
+ -- Die naechste Eierhoehe ist ein Naeherungswert fuer den aktuellen Bereich.
+ local nearest=nil;local nd=math.huge
+ for _,egg in ipairs(arr) do
+  local d=(egg.position-r.Position).Magnitude
+  if d<nd then nd=d;nearest=egg end
  end
- if not near then info.Text='Keine Eier geladen. Gehe naeher zu einem Ei.';return end
- if dist>180 then info.Text='Stell dich zur sicheren Bereichswahl naeher an ein Ei (180 Studs).';return end
- zoneY=near.position.Y;selectedEgg=nil;table.clear(tourCache)
- info.Text='Bereich gesetzt bei '..near.name..'. Jetzt SCAN oder TOUR.'
- print('[ZONE V3] Anchor',near.name,'Y',zoneY)
-end
-local function candidates()
- local arr={}
- for _,e in ipairs(getEggs()) do
-  if inZone(e) then table.insert(arr,e) end
- end
- return arr
-end
-local function scanNow()
- if not zoneY then info.Text='Zuerst Bereich festlegen.';return end
- local arr=candidates();local readable={}
- for _,e in ipairs(arr) do
-  if e.luck then table.insert(readable,e) end
- end
- table.sort(readable,function(a,b)return a.luck>b.luck end)
- selectedEgg=readable[1]
- print('[SCAN] Im Bereich',#arr,'mit Luck',#readable)
- for i,e in ipairs(readable) do
-  print('[SCAN]',i,e.name,fmt(e.luck))
- end
- if selectedEgg then info.Text='SCAN: '..#readable..' Eier mit Luck. BESTES: '..selectedEgg.name..' / '..fmt(selectedEgg.luck)
- else info.Text='Keine auslesbaren Luck-Werte im Bereich.' end
-end
-local function teleport(e)
- local char,r=characterRoot()
- if not char or not r or not e then return false end
- local p=e.position+Vector3.new(3,4,0)
- local params=RaycastParams.new();params.FilterType=Enum.RaycastFilterType.Exclude
- params.FilterDescendantsInstances={char,e.root}
- local hit=workspace:Raycast(p+Vector3.new(0,9,0),Vector3.new(0,-40,0),params)
- if hit and hit.Normal.Y>.65 and hit.Position.Y<=e.position.Y+4 then p=hit.Position+Vector3.new(0,4.2,0) end
- r.AssemblyLinearVelocity=Vector3.zero;r.AssemblyAngularVelocity=Vector3.zero
- local ok=pcall(function()char:PivotTo(CFrame.new(p,e.position))end)
- if not ok then return false end
- task.wait(1.25)
- local _,r2=characterRoot()
- return r2~=nil and (r2.Position-p).Magnitude<=18
-end
-local function tour()
- if busy or not zoneY then
-  if not zoneY then info.Text='Zuerst Bereich festlegen.' end
+ if not nearest then
+  info.Text='Kein geladenes Ei gefunden.'
   return
  end
- busy=true;cancelTour=false;selectedEgg=nil
- tourBtn.Text='TOUR LAEUFT ...'
- local seen={};local checked=0;local failed=0
- -- Collect currently loaded candidates. Repeat discovery after each move to include newly streamed eggs.
- local queue=candidates();local index=1
- while running and not cancelTour and index<=#queue and checked<150 do
-  local e=queue[index];index=index+1
-  if not seen[e.root] and e.root.Parent and inZone(e) then
-   seen[e.root]=true
-   info.Text=string.format('TOUR: Ei %d/%d | %s',checked+1,#queue,e.name)
-   local arrived=teleport(e)
-   if arrived then
-    task.wait(.4) -- give HUD a moment to update
-    if e.root.Parent then
-     local luck=luckFrom(e.root)
-     if luck then
-      e.luck=luck;checked=checked+1
-      table.insert(tourCache,e)
-      print('[TOUR]',e.name,fmt(luck))
-     else
-      failed=failed+1;print('[TOUR] Luck unbekannt:',e.name)
-     end
-    end
-   else
-    failed=failed+1;print('[TOUR] Teleport blockiert:',e.name)
-   end
-   for _,newEgg in ipairs(candidates()) do
-    if not seen[newEgg.root] then
-     local queued=false
-     for j=index,#queue do if queue[j].root==newEgg.root then queued=true;break end end
-     if not queued then table.insert(queue,newEgg) end
-    end
-   end
+ zoneY=nearest.position.Y
+ -- Zone um das Anker-Ei statt die aktuelle Spielerposition zentrieren.
+ zoneCenter=Vector3.new(nearest.position.X,0,nearest.position.Z)
+ info.Text='Bereich gesetzt bei '..nearest.name..' (Abstand '..math.floor(nd)..' Studs). Jetzt Scan druecken.'
+ selectedEgg = nil
+ table.clear(eggMemory)
+ print('[ZONE] Anchor '..nearest.name..' | Hoehe '..zoneY..' | kein Entfernungsfilter')
+end
+local function candidates()
+ local eggs,unparsed=loadedEggs()
+ if not zoneY then return {},#eggs,unparsed,'Bereich noch nicht festgelegt.' end
+ local usable={}; local wrongLevel=0
+ for _,e in ipairs(eggs) do
+  -- Keine Entfernungsgrenze: auch 50M weit weg soll gegen 5M gewinnen.
+  -- Nur die bei Bereich festlegen gespeicherte Ei-Ebene wird beruecksichtigt.
+  if math.abs(e.position.Y-zoneY)>heightTolerance then
+   wrongLevel=wrongLevel+1
+  else
+   table.insert(usable,e)
   end
  end
- table.sort(tourCache,function(a,b)return a.luck>b.luck end)
- selectedEgg=tourCache[1]
- tourBtn.Text='[ 3 ] EGG TOUR: ALLE PRUEFEN';busy=false
- if not running then return end
- if cancelTour then info.Text='Tour gestoppt. Geprueft: '..checked..' | fehlgeschlagen: '..failed;return end
- if not selectedEgg then info.Text='Kein Ei verifiziert ('..failed..' Fehler). Server kann TP blockieren.';return end
- info.Text='BESTES: '..selectedEgg.name..' / '..fmt(selectedEgg.luck)..' | geprueft '..checked..' | Fehler '..failed..'. TP ...'
- local best=selectedEgg
- if not teleport(best) then
-  info.Text='BESTES: '..best.name..' / '..fmt(best.luck)..' | Rueck-TP wurde blockiert.'
- else
-  info.Text='BESTES: '..best.name..' / '..fmt(best.luck)..' | '..checked..' geprueft, '..failed..' Fehler.'
- end
+ table.sort(usable,function(a,b)
+  if a.luck~=b.luck then return a.luck>b.luck end
+  local da=(Vector3.new(a.position.X,0,a.position.Z)-zoneCenter).Magnitude
+  local db=(Vector3.new(b.position.X,0,b.position.Z)-zoneCenter).Magnitude
+  return da<db
+ end)
+ local summary=string.format('Geladen %d | Bereich %d | andere Hoehe %d | Luck unklar %d',#eggs,#usable,wrongLevel,unparsed)
+ return usable,#eggs,unparsed,summary
 end
-zoneBtn.MouseButton1Click:Connect(setZone)
-scanBtn.MouseButton1Click:Connect(function()if not busy then scanNow()end end)
-tourBtn.MouseButton1Click:Connect(function()if not busy then task.spawn(tour)end end)
-cancelBtn.MouseButton1Click:Connect(function()cancelTour=true;info.Text='Stoppe Tour nach aktuellem Teleport ...' end)
-tpBtn.MouseButton1Click:Connect(function()
- if busy then return end
- if not selectedEgg then info.Text='Zuerst Scan oder Tour starten.';return end
- busy=true
- local e=selectedEgg
- if teleport(e) then info.Text='TP zu '..e.name..' / '..fmt(e.luck)..' gelungen (clientseitig).'
- else info.Text='TP blockiert oder zurueckgesetzt.' end
- busy=false
-end)
-local function visible(obj)
- if not obj:IsA('GuiObject') or obj.AbsoluteSize.X<5 or obj.AbsoluteSize.Y<5 then return false end
- local p=obj
- while p and p~=pg do
-  if p:IsA('GuiObject') and not p.Visible then return false end
-  if p:IsA('ScreenGui') and not p.Enabled then return false end
-  p=p.Parent
+local function scan()
+ local arr,_,_,summary=candidates()
+ local now=os.clock()
+ lastScanAt=now
+ local present={}
+ for _,e in ipairs(arr) do
+  local key=eggKey(e)
+  present[key]=true
+  local item=eggMemory[key]
+  if not item then
+   item={name=e.name,position=e.position,luck=e.luck,firstSeen=now}
+   eggMemory[key]=item
+  end
+  item.name=e.name
+  item.position=e.position
+  item.luck=e.luck
+  item.lastSeen=now
+ end
+ -- Remove outdated observations; never claim cached eggs are still available.
+ for k,item in pairs(eggMemory) do
+  if now-item.lastSeen>MEMORY_SECONDS then eggMemory[k]=nil end
+ end
+ local remembered=nil
+ local memoryCount=0
+ for k,item in pairs(eggMemory) do
+  memoryCount=memoryCount+1
+  if not remembered or item.luck>remembered.luck then remembered=item end
+ end
+ selectedEgg=arr[1]
+ print('[SMART SCAN] '..summary..' | Memory '..memoryCount)
+ for i,e in ipairs(arr) do
+  if i>20 then break end
+  print(string.format('[EGG #%d] %s | Luck %s | Y %.1f',i,e.name,fmt(e.luck),e.position.Y))
+ end
+ if not selectedEgg then
+  info.Text=summary..'\nKein geladenes Ei erreichbar. Gespeichert: '..
+   (remembered and (remembered.name..' / '..fmt(remembered.luck)..' (NICHT geladen)') or 'keines')
+  return nil
+ end
+ local extra=''
+ if remembered and remembered.luck>selectedEgg.luck then
+  extra='\nBesser gemerkt: '..remembered.name..' '..fmt(remembered.luck)..' (NICHT bestaetigt)'
+ end
+ info.Text=summary..'\nBESTES GELADEN: '..selectedEgg.name..' '..fmt(selectedEgg.luck)..extra
+ print('[BEST LOADED]',selectedEgg.name,fmt(selectedEgg.luck))
+ if remembered then print('[BEST REMEMBERED]',remembered.name,fmt(remembered.luck),
+   present[eggKey(remembered)] and 'geladen' or 'moeglicherweise entladen') end
+ return selectedEgg
+end
+local function teleportTo(cframe,desc)
+ local char,root=rootPart()
+ if not root then info.Text='Charakter nicht bereit.';return false end
+ local hum=char:FindFirstChildOfClass('Humanoid')
+ local wasSeated=hum and hum.Sit
+ -- Bei Reittieren bewegt sich die eigene Figur moeglicherweise nicht unabhaengig vom Pet.
+ root.AssemblyLinearVelocity=Vector3.zero
+ root.AssemblyAngularVelocity=Vector3.zero
+ char:PivotTo(cframe)
+ task.wait(1.2)
+ local afterRoot=char:FindFirstChild('HumanoidRootPart')
+ if not afterRoot then info.Text='Teleport: Charakter neu geladen.';return false end
+ local errorDist=(afterRoot.Position-cframe.Position).Magnitude
+ if errorDist>18 then
+  info.Text=desc..': zurueckgesetzt/blockiert ('..math.floor(errorDist)..' Studs).'
+  print('[ZONE TP]',desc,'Abweichung',errorDist,'Sitzt:',wasSeated)
+  return false
+ end
+ info.Text=desc..': Position erreicht (clientseitig).'
+ return true
+end
+local function eggTP(e)
+ if not e then return false end
+ local char,root=rootPart();if not root then return false end
+ -- Landen neben Prompt, ueber dem Fussboden. Keine falsche Weltposition garantieren.
+ local offset=Vector3.new(3,4,0)
+ local target=e.position+offset
+ local params=RaycastParams.new();params.FilterType=Enum.RaycastFilterType.Exclude
+ params.FilterDescendantsInstances={char,e.root}
+ local hit=workspace:Raycast(target+Vector3.new(0,9,0),Vector3.new(0,-40,0),params)
+ if hit and hit.Normal.Y>.65 and hit.Position.Y<=e.position.Y+4 then target=hit.Position+Vector3.new(0,4.2,0) end
+ return teleportTo(CFrame.new(target,e.position),'Ei-Teleport')
+end
+local function purpleVisible(obj)
+ if not obj:IsA('GuiObject') then return false end
+ if obj.AbsoluteSize.X < 5 or obj.AbsoluteSize.Y < 5 then return false end
+ local current=obj
+ while current and current~=pg do
+  if current:IsA('GuiObject') and not current.Visible then return false end
+  if current:IsA('ScreenGui') and not current.Enabled then return false end
+  current=current.Parent
  end
  return true
 end
+local function purpleTarget(obj)
+ local parent=obj.Parent
+ if parent then
+  for _,name in ipairs({'Tap','Hit'}) do
+   local child=parent:FindFirstChild(name)
+   if child and purpleVisible(child) then return child end
+  end
+ end
+ return obj
+end
+local function purpleClick(x,y)
+ if type(mousemoveabs)=='function' then mousemoveabs(x,y) end
+ task.wait(.15)
+ if not active or not autoClick then return end
+ VirtualInputManager:SendMouseButtonEvent(x,y,0,true,game,0)
+ task.wait(PURPLE_HOLD_TIME)
+ VirtualInputManager:SendMouseButtonEvent(x,y,0,false,game,0)
+end
+-- Nur bei Roblox-Idle ein kurzes Eingabesignal senden.
+-- Dies kann je nach Spiel/Executor blockiert werden; keine Garantie gegen Kick.
+afkBtn.MouseButton1Click:Connect(function()
+ antiAfk = not antiAfk
+ afkBtn.Text = antiAfk and "ANTI-AFK: AN" or "ANTI-AFK: AUS"
+ if idleConnection then idleConnection:Disconnect(); idleConnection=nil end
+ if antiAfk then
+  idleConnection = player.Idled:Connect(function()
+   if not active or not antiAfk then return end
+   local ok,err = pcall(function()
+    VirtualUser:CaptureController()
+    VirtualUser:ClickButton2(Vector2.new(0,0))
+   end)
+   if not ok then
+    warn("[ANTI-AFK] "..tostring(err))
+    info.Text="Anti-AFK Fehler: "..tostring(err):sub(1,70)
+   end
+  end)
+  info.Text="Anti-AFK AN. Reagiert auf das Roblox-Idle-Signal (keine Garantie)."
+ else
+  info.Text="Anti-AFK AUS."
+ end
+end)
+
 purpleBtn.MouseButton1Click:Connect(function()
- autoClick=not autoClick;table.clear(clicked)
- purpleBtn.Text=autoClick and 'AUTO CLICK LILA PUNKTE: AN' or 'AUTO CLICK LILA PUNKTE: AUS'
+ autoClick = not autoClick
+ table.clear(clickedPurple)
+ purpleBtn.Text = autoClick and "AUTO CLICK LILA PUNKTE: AN" or "AUTO CLICK LILA PUNKTE: AUS"
+ info.Text = autoClick and "Auto Train: Suche Lila Punkte ..." or "Auto Train: Pausiert"
 end)
 task.spawn(function()
- while running do
+ while active do
   if autoClick then
-   local now={}
+   local visibleNow = {}
    for _,obj in ipairs(pg:GetDescendants()) do
-    if not running or not autoClick then break end
-    if obj.Name=='Tap2' and visible(obj) and not obj:IsDescendantOf(gui) then
-     now[obj]=true
-     local target=obj
-     local parent=obj.Parent
-     if parent then
-      local tap=parent:FindFirstChild('Tap')
-      local hit=parent:FindFirstChild('Hit')
-      if tap and visible(tap) then target=tap elseif hit and visible(hit) then target=hit end
-     end
-     local x=math.floor(target.AbsolutePosition.X+target.AbsoluteSize.X/2)
-     local y=math.floor(target.AbsolutePosition.Y+target.AbsoluteSize.Y/2+60)
-     local sig=x..':'..y
-     if clicked[obj]~=sig then
-      pcall(function()
-       if type(mousemoveabs)=='function' then mousemoveabs(x,y) end
-       task.wait(.15)
-       if not autoClick then return end
-       VIM:SendMouseButtonEvent(x,y,0,true,game,0)
-       task.wait(1)
-       VIM:SendMouseButtonEvent(x,y,0,false,game,0)
-      end)
-      clicked[obj]=sig
+    if not active or not autoClick then break end
+    if obj.Name == "Tap2" and purpleVisible(obj) and not obj:IsDescendantOf(gui) then
+     visibleNow[obj] = true
+     local target = purpleTarget(obj)
+     local pos,size = target.AbsolutePosition,target.AbsoluteSize
+     local x = math.floor(pos.X+size.X/2)
+     local y = math.floor(pos.Y+size.Y/2+PURPLE_Y_OFFSET)
+     local sig = tostring(x)..":"..tostring(y)
+     if clickedPurple[obj] ~= sig then
+      local ok,err=pcall(function() purpleClick(x,y) end)
+      if ok and autoClick then clickedPurple[obj]=sig
+      else warn("[PURPLE] "..tostring(err)); info.Text="Lila Klick: "..tostring(err):sub(1,70) end
       break
      end
     end
    end
-   for obj in pairs(clicked) do if not now[obj] then clicked[obj]=nil end end
+   for obj in pairs(clickedPurple) do
+    if not visibleNow[obj] then clickedPurple[obj]=nil end
+   end
   end
-  task.wait(.08)
+  task.wait(PURPLE_DELAY)
  end
 end)
-afkBtn.MouseButton1Click:Connect(function()
- antiAfk=not antiAfk;afkBtn.Text=antiAfk and 'ANTI-AFK: AN' or 'ANTI-AFK: AUS'
- if idleConnection then idleConnection:Disconnect();idleConnection=nil end
- if antiAfk then
-  idleConnection=player.Idled:Connect(function()
-   if running and antiAfk then pcall(function()VirtualUser:CaptureController();VirtualUser:ClickButton2(Vector2.new(0,0))end)end
-  end)
+zoneBtn.MouseButton1Click:Connect(setZone)
+scanBtn.MouseButton1Click:Connect(scan)
+tpBtn.MouseButton1Click:Connect(function()
+ if busy then return end
+ busy=true
+ local e=selectedEgg
+ if not e or not e.root or not e.root.Parent or not e.prompt or not e.prompt.Parent then e=scan() end
+ if e then eggTP(e) else info.Text="Bitte zuerst Scan Eggs druecken." end
+ busy=false
+end)
+autoBtn.MouseButton1Click:Connect(function()
+ if not autoEgg and not zoneY then info.Text="Erst Bereich festlegen.";return end
+ autoEgg=not autoEgg
+ autoBtn.Text=autoEgg and "AUTO BEST EGG: AN" or "AUTO BEST EGG: AUS"
+end)
+task.spawn(function()
+ while active do
+  if autoEgg and not busy then
+   busy=true
+   local e=scan()
+   if e then
+    local ok=eggTP(e)
+    if not ok then autoEgg=false;autoBtn.Text="AUTO BEST EGG: AUS" end
+   end
+   busy=false
+  end
+  task.wait(8)
  end
 end)
-print('[SAVE THE EGG V3] Egg Tour loaded. Discover and verify streamed eggs in approximate height zone.')
+print("[SAVE THE EGG SMART V2] Egg Memory aktiv; nur geladene Eier sind TP-Ziele")

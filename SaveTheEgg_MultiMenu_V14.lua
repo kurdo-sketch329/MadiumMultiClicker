@@ -1,5 +1,5 @@
 
--- SAVE THE EGG | MULTI MENU V15
+-- SAVE THE EGG | MULTI MENU V16
 -- Datei: SaveTheEgg_MultiMenu_V14.lua
 -- Madium PC
 
@@ -31,13 +31,15 @@ local clicked = {}
 local lastEggKey = nil
 
 local old = pg:FindFirstChild("SaveEggMultiV15")
+if old then old:Destroy() end
+old = pg:FindFirstChild("SaveEggMultiV16")
 if old then
     old:Destroy()
 end
 
 -- GUI
 local gui = Instance.new("ScreenGui")
-gui.Name = "SaveEggMultiV15"
+gui.Name = "SaveEggMultiV16"
 gui.ResetOnSpawn = false
 gui.Parent = pg
 
@@ -86,7 +88,7 @@ local function makeButton(text, y, color)
 end
 
 local title = makeLabel(
-    "SAVE THE EGG | MULTI MENU V15",
+    "SAVE THE EGG | MULTI MENU V16",
     5, 30
 )
 title.Font = Enum.Font.GothamBold
@@ -382,109 +384,93 @@ local function findEggRoot(obj)
     return nil
 end
 
-local function getLuckFromGui(root)
-    local hasLuckIcon = false
-    local bestNumber = nil
+-- Upgrade-Schilder duerfen nicht als Eier erkannt werden.
+local function isUpgradeObject(obj)
+    local current = obj
+    while current and current ~= workspace do
+        local name = current.Name:lower():gsub('%s+', '')
+        if name:find('hatchluck', 1, true)
+            or name:find('upgrades', 1, true)
+            or name:find('luckupgrade', 1, true) then
+            return true
+        end
+        current = current.Parent
+    end
+    return false
+end
 
+local function containsUpgradeGui(root)
     for _, obj in ipairs(root:GetDescendants()) do
-        if obj:IsA("TextLabel")
-            or obj:IsA("TextButton") then
-
-            local txt = obj.Text or ""
-            local lower = string.lower(txt)
-
-            if txt:find("🍀", 1, true)
-                or lower:find("luck", 1, true) then
-
-                hasLuckIcon = true
-            end
-
-            local value = parseNumber(txt)
-
-            if value and (
-                not bestNumber
-                or value > bestNumber
-            ) then
-                bestNumber = value
+        if obj:IsA('TextLabel') or obj:IsA('TextButton') then
+            local text = (obj.Text or ''):lower():gsub('%s+', '')
+            if text:find('hatchluck', 1, true)
+                or text:find('baseluck', 1, true)
+                or text:find('+1luck', 1, true) then
+                return true
             end
         end
     end
+    return false
+end
 
-    if hasLuckIcon then
-        return bestNumber
+-- Nur Werte lesen, die selbst als Luck gekennzeichnet sind.
+-- Geldpreise, Fortschrittsbalken und MAX-Buttons zaehlen nicht.
+local function getLuckFromGui(root)
+    if containsUpgradeGui(root) then
+        return nil
     end
 
-    return nil
+    local bestNumber = nil
+    for _, obj in ipairs(root:GetDescendants()) do
+        if obj:IsA('TextLabel') or obj:IsA('TextButton') then
+            local txt = (obj.Text or ''):lower():gsub(',', '')
+            local numberText = txt:match('luck%s*[:=]%s*[x×]?%s*([%d%.]+[kmbt]?)')
+                or txt:match('([%d%.]+[kmbt]?)%s*[x×]?%s*luck')
+            if numberText then
+                local value = parseNumber(numberText)
+                if value and (not bestNumber or value > bestNumber) then
+                    bestNumber = value
+                end
+            end
+        end
+    end
+    return bestNumber
 end
 
 local function findBestLuckEgg()
     local best = nil
     local bestLuck = -1
     local eggCount = 0
-
     local seen = {}
 
-    for _, obj in ipairs(
-        workspace:GetDescendants()
-    ) do
-
-        if obj:IsA("ProximityPrompt")
-            and obj.Enabled then
-
-            local action =
-                string.lower(obj.ActionText or "")
-
-            local objectText =
-                string.lower(obj.ObjectText or "")
-
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA('ProximityPrompt') and obj.Enabled then
+            local action = (obj.ActionText or ''):lower()
             local root = findEggRoot(obj.Parent)
-
-            local isEgg =
-                root ~= nil
-                or objectText:find("egg", 1, true)
-
-            local isPickup =
-                action:find("pick", 1, true)
-                or action:find("collect", 1, true)
-
-            if isEgg and isPickup then
-                local target = root or obj.Parent
-
-                if target and not seen[target] then
-                    seen[target] = true
+            -- Niemals bloss wegen Text auf einem Schild als Ei werten.
+            local isPickup = action:find('pick', 1, true)
+                or action:find('collect', 1, true)
+            if root and isPickup and not isUpgradeObject(root)
+                and not isUpgradeObject(obj) and not seen[root] then
+                seen[root] = true
+                if not containsUpgradeGui(root) then
                     eggCount = eggCount + 1
-
-                    local luck = getLuckFromGui(target)
-
+                    local luck = getLuckFromGui(root)
                     if luck and luck > bestLuck then
-                        local pos = getPosition(target)
-
+                        local pos = getPosition(root)
                         if not pos then
-                            local part =
-                                target:FindFirstChildWhichIsA(
-                                    "BasePart", true
-                                )
-
-                            if part then
-                                pos = part.Position
-                            end
+                            local part = root:FindFirstChildWhichIsA('BasePart', true)
+                            if part then pos = part.Position end
                         end
-
                         if pos then
                             bestLuck = luck
-
-                            best = {
-                                position = pos,
-                                luck = luck,
-                                name = target.Name
-                            }
+                            best = { position = pos, luck = luck, name = root.Name }
                         end
                     end
                 end
             end
         end
     end
-
     return best, eggCount
 end
 
@@ -499,7 +485,7 @@ local function scanEggs()
     else
         eggStatus.Text =
             "Eier erkannt: " .. count
-            .. "\nKein auslesbarer Luck-Wert."
+            .. "\nKein eindeutig zugeordnetes Ei-Luck gefunden."
     end
 
     return best

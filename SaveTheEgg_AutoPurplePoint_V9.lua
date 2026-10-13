@@ -1,21 +1,17 @@
 
--- SAVE THE EGG | V9 MULTI MENU
--- Auto Purple Click + Best Luck Egg Teleport
--- Madium PC
+-- SAVE THE EGG | V14 MULTI MENU
+-- Auto Purple Click + Luck Egg Scanner + Teleport
 
 local Players = game:GetService("Players")
 local VIM = game:GetService("VirtualInputManager")
-
 local player = Players.LocalPlayer
 local pg = player:WaitForChild("PlayerGui")
 
--- Einstellungen
 local Y_OFFSET = 60
 local HOLD_TIME = 1
-local CLICK_SCAN_DELAY = 0.08
-local EGG_SCAN_DELAY = 3
+local SCAN_DELAY = 0.08
 
--- Alte Version stoppen
+-- Alte Versionen stoppen
 if _G.SaveEggMultiStop then
     pcall(_G.SaveEggMultiStop)
 end
@@ -29,20 +25,18 @@ local autoClick = false
 local autoTP = false
 local clicked = {}
 
-local old = pg:FindFirstChild("SaveEggMultiV9")
-if old then
-    old:Destroy()
-end
+local old = pg:FindFirstChild("SaveEggMultiV14")
+if old then old:Destroy() end
 
 -- GUI
 local gui = Instance.new("ScreenGui")
-gui.Name = "SaveEggMultiV9"
+gui.Name = "SaveEggMultiV14"
 gui.ResetOnSpawn = false
 gui.Parent = pg
 
 local frame = Instance.new("Frame")
-frame.Size = UDim2.fromOffset(330, 285)
-frame.Position = UDim2.new(0.5, -165, 0.25, 0)
+frame.Size = UDim2.fromOffset(340, 345)
+frame.Position = UDim2.new(0.5, -170, 0.2, 0)
 frame.BackgroundColor3 = Color3.fromRGB(32, 27, 44)
 frame.BorderSizePixel = 0
 frame.Active = true
@@ -52,73 +46,69 @@ frame.Parent = gui
 Instance.new("UICorner", frame).CornerRadius =
     UDim.new(0, 10)
 
-local function makeLabel(text, y, height)
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(1, -20, 0, height)
-    label.Position = UDim2.fromOffset(10, y)
-    label.BackgroundTransparency = 1
-    label.TextColor3 = Color3.new(1, 1, 1)
-    label.Font = Enum.Font.Gotham
-    label.TextSize = 13
-    label.TextWrapped = true
-    label.Text = text
-    label.Parent = frame
-    return label
+local function label(text, y, height)
+    local obj = Instance.new("TextLabel")
+    obj.Size = UDim2.new(1, -20, 0, height)
+    obj.Position = UDim2.fromOffset(10, y)
+    obj.BackgroundTransparency = 1
+    obj.TextColor3 = Color3.new(1, 1, 1)
+    obj.Font = Enum.Font.Gotham
+    obj.TextSize = 13
+    obj.TextWrapped = true
+    obj.Text = text
+    obj.Parent = frame
+    return obj
 end
 
-local function makeButton(text, y, color)
-    local button = Instance.new("TextButton")
-    button.Size = UDim2.new(1, -20, 0, 38)
-    button.Position = UDim2.fromOffset(10, y)
-    button.BackgroundColor3 =
+local function button(text, y, color)
+    local obj = Instance.new("TextButton")
+    obj.Size = UDim2.new(1, -20, 0, 37)
+    obj.Position = UDim2.fromOffset(10, y)
+    obj.BackgroundColor3 =
         color or Color3.fromRGB(115, 65, 180)
-    button.TextColor3 = Color3.new(1, 1, 1)
-    button.Font = Enum.Font.GothamBold
-    button.TextSize = 14
-    button.Text = text
-    button.Parent = frame
+    obj.TextColor3 = Color3.new(1, 1, 1)
+    obj.Font = Enum.Font.GothamBold
+    obj.TextSize = 13
+    obj.Text = text
+    obj.Parent = frame
 
-    Instance.new("UICorner", button).CornerRadius =
+    Instance.new("UICorner", obj).CornerRadius =
         UDim.new(0, 8)
 
-    return button
+    return obj
 end
 
-local title = makeLabel(
-    "SAVE THE EGG | MULTI MENU V9",
-    7,
-    27
+local title = label(
+    "SAVE THE EGG | V14 MULTI MENU", 5, 30
 )
 title.Font = Enum.Font.GothamBold
 title.TextSize = 15
 
-local clickButton = makeButton(
-    "Auto Click Purple Point: OFF",
-    42
+local clickButton = button(
+    "Auto Click Purple Point: OFF", 42
 )
 
-local tpButton = makeButton(
-    "TP Best Luck Egg",
-    88,
+local scanButton = button(
+    "Scan Eggs", 85,
     Color3.fromRGB(65, 125, 180)
 )
 
-local autoTPButton = makeButton(
-    "Auto TP Best Luck: OFF",
-    134,
+local tpButton = button(
+    "TP Best Luck Egg", 128,
+    Color3.fromRGB(65, 125, 180)
+)
+
+local autoTPButton = button(
+    "Auto TP Best Luck: OFF", 171,
     Color3.fromRGB(65, 145, 105)
 )
 
-local clickStatus = makeLabel(
-    "Purple Click: Bereit",
-    185,
-    35
+local clickStatus = label(
+    "Purple Click: Bereit", 220, 38
 )
 
-local eggStatus = makeLabel(
-    "Egg TP: Bereit",
-    220,
-    50
+local eggStatus = label(
+    "Egg Scanner: Bereit", 260, 65
 )
 
 local close = Instance.new("TextButton")
@@ -145,7 +135,10 @@ _G.PurplePointStop = stop
 
 close.MouseButton1Click:Connect(stop)
 
--- Sichtbarkeit prüfen
+-- =================================
+-- PURPLE CLICKER
+-- =================================
+
 local function isVisible(obj)
     if not obj:IsA("GuiObject") then
         return false
@@ -175,10 +168,6 @@ local function isVisible(obj)
     return true
 end
 
--- ==========================
--- AUTO PURPLE POINT
--- ==========================
-
 local function getCircleTarget(obj)
     local parent = obj.Parent
 
@@ -206,7 +195,6 @@ local function findPurpleTargets()
         if obj.Name == "Tap2"
             and isVisible(obj)
             and not obj:IsDescendantOf(gui) then
-
             table.insert(result, obj)
         end
     end
@@ -266,8 +254,7 @@ task.spawn(function()
                     pos.Y + size.Y / 2 + Y_OFFSET
                 )
 
-                local signature =
-                    tostring(x) .. ":" .. tostring(y)
+                local signature = x .. ":" .. y
 
                 if clicked[obj] ~= signature then
                     local ok, err = pcall(function()
@@ -281,7 +268,7 @@ task.spawn(function()
                     else
                         clickStatus.Text =
                             "Klickfehler: "
-                            .. tostring(err):sub(1, 55)
+                            .. tostring(err):sub(1, 50)
                     end
 
                     break
@@ -300,15 +287,15 @@ task.spawn(function()
             end
         end
 
-        task.wait(CLICK_SCAN_DELAY)
+        task.wait(SCAN_DELAY)
     end
 end)
 
--- ==========================
--- BEST LUCK EGG TELEPORT
--- ==========================
+-- =================================
+-- LUCK EGG SCANNER
+-- =================================
 
-local function parseLuck(text)
+local function parseNumber(text)
     if type(text) ~= "string" then
         return nil
     end
@@ -316,40 +303,70 @@ local function parseLuck(text)
     local cleaned = text:gsub(",", "")
     cleaned = cleaned:gsub("%s+", "")
 
-    -- Wert mit Kleeblatt erkennen
-    local number, suffix =
-        cleaned:match("🍀([%d%.]+)([KkMmBbTt]?)")
+    local num, suffix =
+        cleaned:match("^([%d%.]+)([KkMmBbTt]?)$")
 
-    if not number then
-        number, suffix =
-            cleaned:match("([%d%.]+)([KkMmBbTt]?)🍀")
-    end
-
-    if not number then
+    if not num then
         return nil
     end
 
-    local value = tonumber(number)
+    local value = tonumber(num)
     if not value then
         return nil
     end
 
-    local multipliers = {
+    local mult = {
         K = 1e3,
         M = 1e6,
         B = 1e9,
         T = 1e12
     }
 
-    suffix = string.upper(suffix or "")
-
-    return value * (multipliers[suffix] or 1)
+    return value *
+        (mult[string.upper(suffix or "")] or 1)
 end
 
-local function getWorldPosition(obj)
+local function parseLuckText(text)
+    if type(text) ~= "string" then
+        return nil
+    end
+
+    local cleaned = text:gsub(",", "")
+    cleaned = cleaned:gsub("%s+", "")
+
+    local num, suffix =
+        cleaned:match("🍀([%d%.]+)([KkMmBbTt]?)")
+
+    if not num then
+        num, suffix =
+            cleaned:match("([%d%.]+)([KkMmBbTt]?)🍀")
+    end
+
+    if num then
+        return parseNumber(num .. (suffix or ""))
+    end
+
+    return nil
+end
+
+local function getPosition(obj)
     local current = obj
 
     while current and current ~= workspace do
+        if current:IsA("BillboardGui")
+            and current.Adornee then
+
+            local adorn = current.Adornee
+
+            if adorn:IsA("BasePart") then
+                return adorn.Position
+            end
+
+            if adorn:IsA("Attachment") then
+                return adorn.WorldPosition
+            end
+        end
+
         if current:IsA("Attachment") then
             return current.WorldPosition
         end
@@ -368,21 +385,62 @@ local function getWorldPosition(obj)
             end
         end
 
-        if current:IsA("BillboardGui")
-            and current.Adornee then
+        current = current.Parent
+    end
 
-            local adornee = current.Adornee
+    return nil
+end
 
-            if adornee:IsA("BasePart") then
-                return adornee.Position
-            end
+local function getTextObjects(root)
+    local texts = {}
 
-            if adornee:IsA("Attachment") then
-                return adornee.WorldPosition
-            end
+    for _, obj in ipairs(root:GetDescendants()) do
+        if obj:IsA("TextLabel")
+            or obj:IsA("TextButton") then
+            table.insert(texts, obj)
+        end
+    end
+
+    return texts
+end
+
+local function findLuckInContainer(root)
+    local texts = getTextObjects(root)
+
+    -- Fall 1: Kleeblatt und Zahl im selben Text
+    for _, obj in ipairs(texts) do
+        local value = parseLuckText(obj.Text)
+
+        if value then
+            return value
+        end
+    end
+
+    -- Fall 2: Kleeblatt und Zahl getrennt
+    local hasClover = false
+    local bestNumber = nil
+
+    for _, obj in ipairs(texts) do
+        local txt = obj.Text or ""
+        local lower = string.lower(txt)
+
+        if txt:find("🍀", 1, true)
+            or lower:find("luck", 1, true) then
+            hasClover = true
         end
 
-        current = current.Parent
+        local value = parseNumber(txt)
+
+        if value then
+            if not bestNumber
+                or value > bestNumber then
+                bestNumber = value
+            end
+        end
+    end
+
+    if hasClover then
+        return bestNumber
     end
 
     return nil
@@ -391,20 +449,26 @@ end
 local function findBestLuckEgg()
     local best = nil
     local bestLuck = -1
+    local scanned = 0
 
+    -- Nur Welt-GUIs durchsuchen
     for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("TextLabel")
-            or obj:IsA("TextButton") then
+        if obj:IsA("BillboardGui")
+            or obj:IsA("SurfaceGui") then
 
-            local luck = parseLuck(obj.Text)
+            local position = getPosition(obj)
 
-            if luck and luck > bestLuck then
-                local pos = getWorldPosition(obj)
+            if position then
+                scanned = scanned + 1
 
-                if pos then
+                local luck =
+                    findLuckInContainer(obj)
+
+                if luck and luck > bestLuck then
                     bestLuck = luck
+
                     best = {
-                        position = pos,
+                        position = position,
                         luck = luck,
                         name = obj.Parent
                             and obj.Parent.Name
@@ -415,10 +479,33 @@ local function findBestLuckEgg()
         end
     end
 
+    return best, scanned
+end
+
+local function scanEggs()
+    local best, scanned = findBestLuckEgg()
+
+    if best then
+        eggStatus.Text =
+            "Bestes Ei: "
+            .. best.name
+            .. " | Luck: "
+            .. tostring(best.luck)
+            .. " | GUIs: "
+            .. scanned
+    else
+        eggStatus.Text =
+            "Kein Luck-Ei gefunden | "
+            .. scanned
+            .. " Welt-GUIs gescannt"
+    end
+
     return best
 end
 
-local function teleportToBestEgg()
+local lastTarget = nil
+
+local function teleportBest()
     local character = player.Character
     local root = character
         and character:FindFirstChild(
@@ -427,15 +514,24 @@ local function teleportToBestEgg()
 
     if not root then
         eggStatus.Text =
-            "Egg TP: Charakter nicht bereit"
+            "Charakter nicht bereit"
         return
     end
 
-    local egg = findBestLuckEgg()
+    local egg = scanEggs()
 
     if not egg then
-        eggStatus.Text =
-            "Egg TP: Kein Glueckswert gefunden"
+        return
+    end
+
+    local targetKey =
+        tostring(egg.position)
+        .. ":"
+        .. tostring(egg.luck)
+
+    -- Auto TP soll nicht dauernd zum
+    -- selben Ei teleportieren
+    if autoTP and targetKey == lastTarget then
         return
     end
 
@@ -446,38 +542,44 @@ local function teleportToBestEgg()
     end)
 
     if ok then
+        lastTarget = targetKey
+
         eggStatus.Text =
             "TP versucht | Luck: "
             .. tostring(egg.luck)
     else
         eggStatus.Text =
             "TP Fehler: "
-            .. tostring(err):sub(1, 55)
+            .. tostring(err):sub(1, 65)
     end
 end
 
+scanButton.MouseButton1Click:Connect(scanEggs)
+
 tpButton.MouseButton1Click:Connect(function()
-    teleportToBestEgg()
+    lastTarget = nil
+    teleportBest()
 end)
 
 autoTPButton.MouseButton1Click:Connect(function()
     autoTP = not autoTP
+    lastTarget = nil
 
     autoTPButton.Text = autoTP
         and "Auto TP Best Luck: ON"
         or "Auto TP Best Luck: OFF"
 
-    if not autoTP then
-        eggStatus.Text = "Auto TP: Pausiert"
-    end
+    eggStatus.Text = autoTP
+        and "Auto TP: Suche Eier ..."
+        or "Auto TP: Pausiert"
 end)
 
 task.spawn(function()
     while running do
         if autoTP then
-            teleportToBestEgg()
+            teleportBest()
         end
 
-        task.wait(EGG_SCAN_DELAY)
+        task.wait(3)
     end
 end)

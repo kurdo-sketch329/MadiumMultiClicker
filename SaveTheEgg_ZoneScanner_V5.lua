@@ -7,7 +7,7 @@ local VirtualUser = game:GetService("VirtualUser")
 local player = Players.LocalPlayer
 local pg = player:WaitForChild("PlayerGui")
 if _G.SaveEggZoneStop then pcall(_G.SaveEggZoneStop) end
-for _, name in ipairs({"SaveEggZoneScannerV1", "SaveEggZoneScannerV2", "SaveEggZoneScannerV3", "SaveEggZoneScannerV4"}) do
+for _, name in ipairs({"SaveEggZoneScannerV1", "SaveEggZoneScannerV2", "SaveEggZoneScannerV4", "SaveEggZoneScannerV6", "SaveEggZoneScannerV3", "SaveEggZoneScannerV6"}) do
  local old = pg:FindFirstChild(name)
  if old then old:Destroy() end
 end
@@ -30,12 +30,12 @@ local function eggKey(e)
  return string.format('%s:%.0f:%.0f:%.0f',e.name,math.floor(p.X/4),math.floor(p.Y/4),math.floor(p.Z/4))
 end
 local gui = Instance.new("ScreenGui")
-gui.Name = "SaveEggZoneScannerV4"
+gui.Name = "SaveEggZoneScannerV6"
 gui.ResetOnSpawn = false
 gui.Parent = pg
 local frame = Instance.new("Frame")
-frame.Size = UDim2.fromOffset(410, 385)
-frame.Position = UDim2.new(.5,-205,.5,-180)
+frame.Size = UDim2.fromOffset(410, 505)
+frame.Position = UDim2.new(.5,-205,.5,-252)
 frame.BackgroundColor3 = Color3.fromRGB(12,12,13)
 frame.BorderSizePixel = 0
 frame.Active = true
@@ -46,7 +46,7 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1,-55,0,34)
 title.Position = UDim2.fromOffset(15,5)
 title.BackgroundTransparency = 1
-title.Text = "SAVE THE EGG  //  SMART V5"
+title.Text = "SAVE THE EGG  //  SMART V6"
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Font = Enum.Font.Code
 title.TextSize = 19
@@ -103,7 +103,7 @@ end
 local eggTab = tab("EASY GET EGG",0)
 local trainTab = tab("AUTO TRAIN",.5)
 local eggPage = Instance.new("Frame")
-eggPage.Size = UDim2.new(1,-10,0,190)
+eggPage.Size = UDim2.new(1,-10,0,325)
 eggPage.Position = UDim2.fromOffset(5,91)
 eggPage.BackgroundTransparency = 1
 eggPage.Parent = frame
@@ -116,6 +116,9 @@ local zoneBtn = button("[ 1 ]  BEREICH HIER FESTLEGEN",eggPage,5)
 local scanBtn = button("[ 2 ]  SCAN EGGS (MAX LUCK)",eggPage,49)
 local tpBtn = button("[ 3 ]  TP BEST EGG",eggPage,93)
 local autoBtn = button("AUTO BEST EGG: AUS",eggPage,137)
+local baseSaveBtn = button("[ 4 ]  BASE MITTE SPEICHERN",eggPage,181)
+local baseTpBtn = button("[ 5 ]  EI -> MEINE BASE",eggPage,225)
+local pickupBtn = button("[ 6 ]  TP BEST EGG + PICK UP",eggPage,269)
 local purpleBtn = button("AUTO CLICK LILA PUNKTE: AUS",trainPage,5)
 local afkBtn = button("ANTI-AFK: AUS",trainPage,49)
 local trainInfo = Instance.new("TextLabel")
@@ -130,7 +133,7 @@ trainInfo.TextColor3 = Color3.fromRGB(210,210,210)
 trainInfo.Parent = trainPage
 local info = Instance.new("TextLabel")
 info.Size = UDim2.new(1,-30,0,85)
-info.Position = UDim2.fromOffset(15,287)
+info.Position = UDim2.fromOffset(15,420)
 info.BackgroundColor3 = Color3.fromRGB(20,20,22)
 info.TextColor3 = Color3.fromRGB(226,226,226)
 info.Font = Enum.Font.Code
@@ -157,8 +160,8 @@ local function stop()
 end
 _G.SaveEggZoneStop = stop
 close.MouseButton1Click:Connect(stop)
-frame.Position = UDim2.new(.5,-205,.5,-280)
-TweenService:Create(frame,TweenInfo.new(.4,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Position=UDim2.new(.5,-205,.5,-180)}):Play()
+frame.Position = UDim2.new(.5,-205,.5,-352)
+TweenService:Create(frame,TweenInfo.new(.4,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Position=UDim2.new(.5,-205,.5,-252)}):Play()
 local function rootPart()
  local c=player.Character
  return c,c and c:FindFirstChild('HumanoidRootPart')
@@ -498,6 +501,69 @@ local function eggTP(e)
  if hit and hit.Normal.Y>.65 and hit.Position.Y<=e.position.Y+4 then target=hit.Position+Vector3.new(0,4.2,0) end
  return teleportTo(CFrame.new(target,e.position),'Ei-Teleport')
 end
+-- Base position is session-local and intentionally not saved across servers.
+local basePosition = nil
+local function pickupNearEgg(e)
+ if not e then return false, "Kein Ei ausgewaehlt." end
+ local _,r=rootPart()
+ if not r then return false,"Charakter fehlt." end
+ -- Use an existing, nearby prompt only; do not assume server pickup succeeded.
+ local prompt=e.prompt
+ if prompt and prompt.Parent and prompt.Enabled then
+  local parent=prompt.Parent
+  local pp=parent:IsA("Attachment") and parent.WorldPosition or (parent:IsA("BasePart") and parent.Position)
+  if pp and (r.Position-pp).Magnitude <= (prompt.MaxActivationDistance + 4) then
+   if type(fireproximityprompt)=="function" then
+    local ok=pcall(function() fireproximityprompt(prompt) end)
+    if ok then return true,"Pickup ausgeloest; Inventar bitte pruefen." end
+   end
+  end
+ end
+ -- Fallback for games with custom E pickup UI.
+ local ok=pcall(function()
+  VirtualInputManager:SendKeyEvent(true,Enum.KeyCode.E,false,game)
+  task.wait(.15)
+  VirtualInputManager:SendKeyEvent(false,Enum.KeyCode.E,false,game)
+ end)
+ return ok, ok and "E gesendet; pruefe, ob du das Ei traegst." or "E-Eingabe fehlgeschlagen."
+end
+baseSaveBtn.MouseButton1Click:Connect(function()
+ local _,r=rootPart()
+ if not r then info.Text="Charakter nicht bereit.";return end
+ basePosition=r.Position
+ info.Text=string.format("Base-Mitte gespeichert: %.0f / %.0f / %.0f",basePosition.X,basePosition.Y,basePosition.Z)
+end)
+baseTpBtn.MouseButton1Click:Connect(function()
+ if busy then return end
+ if not basePosition then info.Text="Stell dich in die Base-Mitte und druecke BASE SPEICHERN.";return end
+ busy=true
+ local _,r=rootPart()
+ if r then
+  local target=basePosition+Vector3.new(0,2,0)
+  teleportTo(CFrame.new(target),"Base-Teleport")
+ else info.Text="Charakter nicht bereit." end
+ busy=false
+end)
+pickupBtn.MouseButton1Click:Connect(function()
+ if busy then return end
+ busy=true
+ local e=selectedEgg
+ if not e or not e.root or not e.root.Parent then e=scan() end
+ if e then
+  -- Immediate pickup attempt: do not wait for the 1.2s TP verification.
+  local char,r=rootPart()
+  if char and r then
+   local target=e.position+Vector3.new(2,3,0)
+   r.AssemblyLinearVelocity=Vector3.zero
+   r.AssemblyAngularVelocity=Vector3.zero
+   char:PivotTo(CFrame.new(target,e.position))
+   task.wait(.08)
+   local _,message=pickupNearEgg(e)
+   info.Text=message.." Server kann dich danach zuruecksetzen."
+  end
+ else info.Text="Kein gueltiges Ei gefunden. Erst Scan testen." end
+ busy=false
+end)
 local function purpleVisible(obj)
  if not obj:IsA('GuiObject') then return false end
  if obj.AbsoluteSize.X < 5 or obj.AbsoluteSize.Y < 5 then return false end
@@ -614,4 +680,4 @@ task.spawn(function()
   task.wait(8)
  end
 end)
-print("[SAVE THE EGG SMART V5] Egg Memory aktiv; nur geladene Eier sind TP-Ziele")
+print("[SAVE THE EGG SMART V6] Egg Memory aktiv; nur geladene Eier sind TP-Ziele")

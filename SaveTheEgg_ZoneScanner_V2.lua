@@ -19,7 +19,7 @@ local PURPLE_Y_OFFSET = 60
 local PURPLE_HOLD_TIME = 1
 local PURPLE_DELAY = 0.08
 local zoneY, zoneCenter = nil, nil
-local heightTolerance = 18
+local heightTolerance = 35
 local selectedEgg = nil
 -- Memory only stores observations, not proof an egg still exists.
 local eggMemory = {}
@@ -46,7 +46,7 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1,-55,0,34)
 title.Position = UDim2.fromOffset(15,5)
 title.BackgroundTransparency = 1
-title.Text = "SAVE THE EGG  //  SMART V4"
+title.Text = "SAVE THE EGG  //  SMART V5"
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Font = Enum.Font.Code
 title.TextSize = 19
@@ -275,31 +275,98 @@ local function diagnostics()
  for _,name in ipairs(examples) do print('[V4 EGG OBJECT]',name) end
  return string.format('Diagnose: Prompts %d | Ei-Objekte %d | Luck-Texte %d | Pickup-Texte %d',promptCount,eggNames,luckLabels,pickupLabels)
 end
+-- V5: collect world-space egg models and nearby world-space luck labels.
+local function worldPosition(obj)
+ if obj:IsA('Attachment') then return obj.WorldPosition end
+ if obj:IsA('BasePart') then return obj.Position end
+ if obj:IsA('Model') then
+  local ok,cf=pcall(function() return obj:GetPivot() end)
+  if ok then return cf.Position end
+ end
+ if obj:IsA('BillboardGui') or obj:IsA('SurfaceGui') then
+  local ad=obj.Adornee
+  if ad then return worldPosition(ad) end
+ end
+ local node=obj.Parent
+ for _=1,12 do
+  if not node or node==workspace then break end
+  if node:IsA('Attachment') or node:IsA('BasePart') then return worldPosition(node) end
+  node=node.Parent
+ end
+ return nil
+end
+local function parseLuckText(t)
+ if type(t)~='string' then return nil end
+ local cleaned=t:gsub(',',''):gsub('%s+','')
+ local v=cleaned:match('🍀([%d%.]+[KkMmBbTtQq]?)')
+ if v then return number(v) end
+ v=cleaned:match('[Ll][Uu][Cc][Kk][^%d]*([%d%.]+[KkMmBbTtQq]?)')
+ if v then return number(v) end
+ return nil
+end
 local function loadedEggs()
- local arr={};local seen={};local unparsed=0;local prompts=0
- for _,p in ipairs(workspace:GetDescendants()) do
-  if p:IsA('ProximityPrompt') and p.Enabled then
-   local action=(p.ActionText or ''):lower()
-   local name=(p.ObjectText or ''):lower()
-   local root=eggRootFromPrompt(p)
-   local rootName=root and root.Name:lower() or ''
-   local isPickup=action:find('pick',1,true) or action:find('collect',1,true)
-   if isPickup and (name:find('egg',1,true) or rootName:find('egg',1,true)) then
-    prompts=prompts+1
-    if root and not seen[p] then
-     seen[p]=true
-     local pos=eggPosition(root,p)
-     local luck=readLuck(root,p)
-     if pos and luck then
-      table.insert(arr,{name=p.ObjectText~='' and p.ObjectText or root.Name,position=pos,luck=luck,prompt=p,root=root})
-     else
-      unparsed=unparsed+1
+ local objects=workspace:GetDescendants()
+ local eggs,labels={},{}
+ local seen={}
+ local promptCount=0
+ for _,obj in ipairs(objects) do
+  if obj:IsA('ProximityPrompt') then promptCount=promptCount+1 end
+  if (obj:IsA('Model') or obj:IsA('BasePart')) and
+   (obj.Name:lower():find('egg',1,true) or obj.Name:lower():find('ei',1,true)) then
+   -- Prefer models over their nested named parts.
+   local ancestor=obj.Parent;local nested=false
+   while ancestor and ancestor~=workspace do
+    if ancestor:IsA('Model') and (ancestor.Name:lower():find('egg',1,true) or ancestor.Name:lower():find('ei',1,true)) then nested=true;break end
+    ancestor=ancestor.Parent
+   end
+   if not nested then
+    local pos=worldPosition(obj)
+    if pos then table.insert(eggs,{name=obj.Name,position=pos,root=obj}) end
+   end
+  end
+  if obj:IsA('TextLabel') or obj:IsA('TextButton') then
+   local t=obj.Text or ''
+   local luck=parseLuckText(t)
+   if not luck and (obj.Name:lower():find('luck',1,true) or obj.Name:lower()=='value') then
+    luck=number(t)
+   end
+   if luck and luck>0 then
+    local pos=worldPosition(obj)
+    if pos then table.insert(labels,{luck=luck,position=pos,object=obj}) end
+   end
+  end
+ end
+ -- If clover is a separate image/label, the number can be a sibling.
+ for _,obj in ipairs(objects) do
+  if (obj:IsA('TextLabel') or obj:IsA('TextButton')) and (obj.Text or ''):find('🍀',1,true) then
+   local parent=obj.Parent
+   if parent then
+    for _,sib in ipairs(parent:GetChildren()) do
+     if sib~=obj and (sib:IsA('TextLabel') or sib:IsA('TextButton')) then
+      local luck=number(sib.Text or '')
+      local pos=worldPosition(obj)
+      if luck and luck>0 and pos then table.insert(labels,{luck=luck,position=pos,object=obj}) end
      end
     end
    end
   end
  end
- return arr,unparsed,prompts
+ local arr={};local unmatched=0
+ for _,egg in ipairs(eggs) do
+  local luck=readLuck(egg.root,egg.root)
+  local nearest,dist=nil,math.huge
+  for _,label in ipairs(labels) do
+   local d=(label.position-egg.position).Magnitude
+   if d<dist then nearest,dist=label,d end
+  end
+  -- Do not borrow luck from a distant unrelated object.
+  if not luck and nearest and dist<=28 then luck=nearest.luck end
+  if luck then
+   table.insert(arr,{name=egg.name,position=egg.position,luck=luck,root=egg.root,prompt=nil})
+  else unmatched=unmatched+1 end
+ end
+ print('[V5 SCAN] Egg models',#eggs,'World luck labels',#labels,'Unmatched',unmatched,'All prompts',promptCount)
+ return arr,unmatched,promptCount
 end
 local function setZone()
  local _,r=rootPart()
@@ -524,7 +591,7 @@ tpBtn.MouseButton1Click:Connect(function()
  if busy then return end
  busy=true
  local e=selectedEgg
- if not e or not e.root or not e.root.Parent or not e.prompt or not e.prompt.Parent then e=scan() end
+ if not e or not e.root or not e.root.Parent then e=scan() end
  if e then eggTP(e) else info.Text="Bitte zuerst Scan Eggs druecken." end
  busy=false
 end)
@@ -547,4 +614,4 @@ task.spawn(function()
   task.wait(8)
  end
 end)
-print("[SAVE THE EGG SMART V4] Egg Memory aktiv; nur geladene Eier sind TP-Ziele")
+print("[SAVE THE EGG SMART V5] Egg Memory aktiv; nur geladene Eier sind TP-Ziele")

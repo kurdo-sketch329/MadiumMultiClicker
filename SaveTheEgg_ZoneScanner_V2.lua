@@ -7,7 +7,7 @@ local VirtualUser = game:GetService("VirtualUser")
 local player = Players.LocalPlayer
 local pg = player:WaitForChild("PlayerGui")
 if _G.SaveEggZoneStop then pcall(_G.SaveEggZoneStop) end
-for _, name in ipairs({"SaveEggZoneScannerV1", "SaveEggZoneScannerV2"}) do
+for _, name in ipairs({"SaveEggZoneScannerV1", "SaveEggZoneScannerV2", "SaveEggZoneScannerV3"}) do
  local old = pg:FindFirstChild(name)
  if old then old:Destroy() end
 end
@@ -30,7 +30,7 @@ local function eggKey(e)
  return string.format('%s:%.0f:%.0f:%.0f',e.name,math.floor(p.X/4),math.floor(p.Y/4),math.floor(p.Z/4))
 end
 local gui = Instance.new("ScreenGui")
-gui.Name = "SaveEggZoneScannerV2"
+gui.Name = "SaveEggZoneScannerV3"
 gui.ResetOnSpawn = false
 gui.Parent = pg
 local frame = Instance.new("Frame")
@@ -46,7 +46,7 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1,-55,0,34)
 title.Position = UDim2.fromOffset(15,5)
 title.BackgroundTransparency = 1
-title.Text = "SAVE THE EGG  //  SMART V2"
+title.Text = "SAVE THE EGG  //  SMART V3"
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Font = Enum.Font.Code
 title.TextSize = 19
@@ -181,17 +181,22 @@ local function fmt(n)
  if n>=1e3 then return string.format('%.1fK',n/1e3) end
  return tostring(math.floor(n))
 end
+-- Flexible egg detection: no fixed EggRoot/WeightBadge hierarchy required.
 local function eggRootFromPrompt(prompt)
  local node=prompt.Parent
- for i=1,10 do
+ local fallback=nil
+ for i=1,12 do
   if not node or node==workspace then break end
   if node.Name=='EggRoot' then return node end
+  if node:IsA('Model') then
+   if node.Name:lower():find('egg',1,true) then return node end
+   if not fallback then fallback=node end
+  end
   node=node.Parent
  end
- return nil
+ return fallback or prompt.Parent
 end
 local function eggPosition(root,prompt)
- -- Position des Pickup-Prompts bevorzugen statt Model-Pivot
  local par=prompt.Parent
  if par:IsA('Attachment') then return par.WorldPosition end
  if par:IsA('BasePart') then return par.Position end
@@ -203,64 +208,103 @@ local function eggPosition(root,prompt)
  if root:IsA('BasePart') then return root.Position end
  return nil
 end
-local function readLuck(root)
- local badge=root:FindFirstChild('WeightBadge',true)
- if not badge then return nil end
- local luck=badge:FindFirstChild('Luck',true)
- if not luck then return nil end
- if luck:IsA('TextLabel') or luck:IsA('TextButton') then return number(luck.Text) end
- for _,x in ipairs(luck:GetDescendants()) do
-  if x:IsA('TextLabel') or x:IsA('TextButton') then
-   local v=number(x.Text);if v then return v end
+local function readLuck(root,prompt)
+ -- Prefer explicit Luck attributes / labels; never use unrelated board numbers.
+ for _,obj in ipairs({root,prompt}) do
+  for _,key in ipairs({'Luck','LuckValue','Weight'}) do
+   local v=obj:GetAttribute(key)
+   if type(v)=='number' then return v end
+   if type(v)=='string' and number(v) then return number(v) end
+  end
+ end
+ local containers={root}
+ if prompt.Parent and prompt.Parent~=root then table.insert(containers,prompt.Parent) end
+ for _,container in ipairs(containers) do
+  for _,obj in ipairs(container:GetDescendants()) do
+   if obj.Name:lower()=='luck' or obj.Name:lower()=='luckvalue' then
+    if obj:IsA('NumberValue') or obj:IsA('IntValue') then return obj.Value end
+    if obj:IsA('StringValue') then local v=number(obj.Value);if v then return v end end
+    if obj:IsA('TextLabel') or obj:IsA('TextButton') then
+     local v=number(obj.Text) or number((obj.Text or ''):match('([%d%.]+[KkMmBbTtQq]?)'))
+     if v then return v end
+    end
+    for _,child in ipairs(obj:GetDescendants()) do
+     if child:IsA('TextLabel') or child:IsA('TextButton') then
+      local v=number(child.Text)
+      if v then return v end
+     end
+    end
+   end
+  end
+  -- Clover and number can be separate text labels under the same badge.
+  local badge=container:FindFirstChild('WeightBadge',true)
+  if badge then
+   local nums={}
+   for _,obj in ipairs(badge:GetDescendants()) do
+    if obj:IsA('TextLabel') or obj:IsA('TextButton') then
+     local v=number(obj.Text)
+     if v then table.insert(nums,v) end
+    end
+   end
+   if #nums==1 then return nums[1] end
   end
  end
  return nil
 end
 local function loadedEggs()
- local arr={};local seen={};local unparsed=0
+ local arr={};local seen={};local unparsed=0;local prompts=0
  for _,p in ipairs(workspace:GetDescendants()) do
   if p:IsA('ProximityPrompt') and p.Enabled then
    local action=(p.ActionText or ''):lower()
    local name=(p.ObjectText or ''):lower()
-   if (action:find('pick',1,true) or action:find('collect',1,true)) and name:find('egg',1,true) then
-    local root=eggRootFromPrompt(p)
-    if root and not seen[root] then
-     seen[root]=true
+   local root=eggRootFromPrompt(p)
+   local rootName=root and root.Name:lower() or ''
+   local isPickup=action:find('pick',1,true) or action:find('collect',1,true)
+   if isPickup and (name:find('egg',1,true) or rootName:find('egg',1,true)) then
+    prompts=prompts+1
+    if root and not seen[p] then
+     seen[p]=true
      local pos=eggPosition(root,p)
-     local luck=readLuck(root)
-     if pos and luck then table.insert(arr,{name=p.ObjectText,position=pos,luck=luck,prompt=p,root=root})
-     else unparsed=unparsed+1 end
+     local luck=readLuck(root,p)
+     if pos and luck then
+      table.insert(arr,{name=p.ObjectText~='' and p.ObjectText or root.Name,position=pos,luck=luck,prompt=p,root=root})
+     else
+      unparsed=unparsed+1
+     end
     end
    end
   end
  end
- return arr,unparsed
+ return arr,unparsed,prompts
 end
 local function setZone()
  local _,r=rootPart()
  if not r then info.Text='Charakter noch nicht bereit.';return end
- local arr=loadedEggs()
- if #arr==0 then info.Text='Noch keine Eier geladen. Geh naeher zu einem Ei.';return end
- -- Die naechste Eierhoehe ist ein Naeherungswert fuer den aktuellen Bereich.
+ local arr,unparsed,prompts=loadedEggs()
  local nearest=nil;local nd=math.huge
  for _,egg in ipairs(arr) do
   local d=(egg.position-r.Position).Magnitude
   if d<nd then nd=d;nearest=egg end
  end
- if not nearest then
-  info.Text='Kein geladenes Ei gefunden.'
-  return
+ if nearest then
+  zoneY=nearest.position.Y
+  zoneCenter=Vector3.new(nearest.position.X,0,nearest.position.Z)
+  info.Text='Bereich gesetzt bei '..nearest.name..'. Jetzt Scan druecken.'
+ else
+  -- Use current floor/character height as fallback, not an egg requirement.
+  local params=RaycastParams.new()
+  params.FilterType=Enum.RaycastFilterType.Exclude
+  params.FilterDescendantsInstances={player.Character}
+  local hit=workspace:Raycast(r.Position,Vector3.new(0,-80,0),params)
+  zoneY=hit and hit.Position.Y+3 or r.Position.Y
+  zoneCenter=Vector3.new(r.Position.X,0,r.Position.Z)
+  info.Text='Bereich an deiner Position gesetzt. PickUp-Prompts: '..prompts..' | Luck unklar: '..unparsed
  end
- zoneY=nearest.position.Y
- -- Zone um das Anker-Ei statt die aktuelle Spielerposition zentrieren.
- zoneCenter=Vector3.new(nearest.position.X,0,nearest.position.Z)
- info.Text='Bereich gesetzt bei '..nearest.name..' (Abstand '..math.floor(nd)..' Studs). Jetzt Scan druecken.'
- selectedEgg = nil
+ selectedEgg=nil
  table.clear(eggMemory)
- print('[ZONE] Anchor '..nearest.name..' | Hoehe '..zoneY..' | kein Entfernungsfilter')
 end
 local function candidates()
- local eggs,unparsed=loadedEggs()
+ local eggs,unparsed,prompts=loadedEggs()
  if not zoneY then return {},#eggs,unparsed,'Bereich noch nicht festgelegt.' end
  local usable={}; local wrongLevel=0
  for _,e in ipairs(eggs) do
@@ -278,7 +322,7 @@ local function candidates()
   local db=(Vector3.new(b.position.X,0,b.position.Z)-zoneCenter).Magnitude
   return da<db
  end)
- local summary=string.format('Geladen %d | Bereich %d | andere Hoehe %d | Luck unklar %d',#eggs,#usable,wrongLevel,unparsed)
+ local summary=string.format('Eier %d | Bereich %d | andere Hoehe %d | Luck unklar %d | Prompts %d',#eggs,#usable,wrongLevel,unparsed,prompts)
  return usable,#eggs,unparsed,summary
 end
 local function scan()
@@ -461,7 +505,7 @@ tpBtn.MouseButton1Click:Connect(function()
  busy=false
 end)
 autoBtn.MouseButton1Click:Connect(function()
- if not autoEgg and not zoneY then info.Text="Erst Bereich festlegen.";return end
+ if not autoEgg and not zoneY then setZone() end
  autoEgg=not autoEgg
  autoBtn.Text=autoEgg and "AUTO BEST EGG: AN" or "AUTO BEST EGG: AUS"
 end)
@@ -479,4 +523,4 @@ task.spawn(function()
   task.wait(8)
  end
 end)
-print("[SAVE THE EGG SMART V2] Egg Memory aktiv; nur geladene Eier sind TP-Ziele")
+print("[SAVE THE EGG SMART V3] Egg Memory aktiv; nur geladene Eier sind TP-Ziele")

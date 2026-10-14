@@ -7,7 +7,7 @@ local VirtualUser = game:GetService("VirtualUser")
 local player = Players.LocalPlayer
 local pg = player:WaitForChild("PlayerGui")
 if _G.SaveEggZoneStop then pcall(_G.SaveEggZoneStop) end
-for _, name in ipairs({"SaveEggZoneScannerV1", "SaveEggZoneScannerV2", "SaveEggZoneScannerV3"}) do
+for _, name in ipairs({"SaveEggZoneScannerV1", "SaveEggZoneScannerV2", "SaveEggZoneScannerV3", "SaveEggZoneScannerV4"}) do
  local old = pg:FindFirstChild(name)
  if old then old:Destroy() end
 end
@@ -30,11 +30,11 @@ local function eggKey(e)
  return string.format('%s:%.0f:%.0f:%.0f',e.name,math.floor(p.X/4),math.floor(p.Y/4),math.floor(p.Z/4))
 end
 local gui = Instance.new("ScreenGui")
-gui.Name = "SaveEggZoneScannerV3"
+gui.Name = "SaveEggZoneScannerV4"
 gui.ResetOnSpawn = false
 gui.Parent = pg
 local frame = Instance.new("Frame")
-frame.Size = UDim2.fromOffset(410, 360)
+frame.Size = UDim2.fromOffset(410, 385)
 frame.Position = UDim2.new(.5,-205,.5,-180)
 frame.BackgroundColor3 = Color3.fromRGB(12,12,13)
 frame.BorderSizePixel = 0
@@ -46,7 +46,7 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1,-55,0,34)
 title.Position = UDim2.fromOffset(15,5)
 title.BackgroundTransparency = 1
-title.Text = "SAVE THE EGG  //  SMART V3"
+title.Text = "SAVE THE EGG  //  SMART V4"
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Font = Enum.Font.Code
 title.TextSize = 19
@@ -129,7 +129,7 @@ trainInfo.TextSize = 15
 trainInfo.TextColor3 = Color3.fromRGB(210,210,210)
 trainInfo.Parent = trainPage
 local info = Instance.new("TextLabel")
-info.Size = UDim2.new(1,-30,0,65)
+info.Size = UDim2.new(1,-30,0,85)
 info.Position = UDim2.fromOffset(15,287)
 info.BackgroundColor3 = Color3.fromRGB(20,20,22)
 info.TextColor3 = Color3.fromRGB(226,226,226)
@@ -251,6 +251,30 @@ local function readLuck(root,prompt)
  end
  return nil
 end
+-- Diagnostics: a custom pickup UI can exist without a ProximityPrompt.
+local function diagnostics()
+ local promptCount, eggNames, luckLabels, pickupLabels = 0, 0, 0, 0
+ local examples = {}
+ for _,obj in ipairs(workspace:GetDescendants()) do
+  if obj:IsA('ProximityPrompt') then promptCount=promptCount+1 end
+  if (obj:IsA('Model') or obj:IsA('BasePart')) and (obj.Name:lower():find('egg',1,true) or obj.Name:lower():find('ei',1,true)) then
+   eggNames=eggNames+1
+   if #examples<4 then table.insert(examples,obj:GetFullName():sub(-90)) end
+  end
+ end
+ for _,parent in ipairs({workspace,pg}) do
+  for _,obj in ipairs(parent:GetDescendants()) do
+   if obj:IsA('TextLabel') or obj:IsA('TextButton') then
+    local t=obj.Text or ''
+    if t:find('🍀',1,true) or t:lower():find('luck',1,true) then luckLabels=luckLabels+1 end
+    if t:lower():find('aufheben',1,true) or t:lower():find('pick up',1,true) then pickupLabels=pickupLabels+1 end
+   end
+  end
+ end
+ print('[V4 DIAG] Prompts:',promptCount,'Egg-name objects:',eggNames,'Luck labels:',luckLabels,'Pickup labels:',pickupLabels)
+ for _,name in ipairs(examples) do print('[V4 EGG OBJECT]',name) end
+ return string.format('Diagnose: Prompts %d | Ei-Objekte %d | Luck-Texte %d | Pickup-Texte %d',promptCount,eggNames,luckLabels,pickupLabels)
+end
 local function loadedEggs()
  local arr={};local seen={};local unparsed=0;local prompts=0
  for _,p in ipairs(workspace:GetDescendants()) do
@@ -360,7 +384,7 @@ local function scan()
   print(string.format('[EGG #%d] %s | Luck %s | Y %.1f',i,e.name,fmt(e.luck),e.position.Y))
  end
  if not selectedEgg then
-  info.Text=summary..'\nKein geladenes Ei erreichbar. Gespeichert: '..
+  info.Text=summary..'\n'..diagnostics()..'\nKein geladenes Ei erreichbar. Gespeichert: '..
    (remembered and (remembered.name..' / '..fmt(remembered.luck)..' (NICHT geladen)') or 'keines')
   return nil
  end
@@ -523,4 +547,4 @@ task.spawn(function()
   task.wait(8)
  end
 end)
-print("[SAVE THE EGG SMART V3] Egg Memory aktiv; nur geladene Eier sind TP-Ziele")
+print("[SAVE THE EGG SMART V4] Egg Memory aktiv; nur geladene Eier sind TP-Ziele")

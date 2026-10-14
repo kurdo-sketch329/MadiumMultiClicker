@@ -582,7 +582,7 @@ local function rideTowards(hum,target,token,deadline)
   local cam=workspace.CurrentCamera
   if not cam then break end
   local forward=Vector3.new(cam.CFrame.LookVector.X,0,cam.CFrame.LookVector.Z)
-  if forward.Magnitude<.01 then break end end
+  if forward.Magnitude<.01 then break end
   forward=forward.Unit
   local right=Vector3.new(cam.CFrame.RightVector.X,0,cam.CFrame.RightVector.Z).Unit
   local direction=delta.Unit
